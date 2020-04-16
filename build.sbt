@@ -23,7 +23,7 @@ inThisBuild(
 )
 
 def common: Seq[Setting[_]] = Seq(
-  scalafmtOnCompile := false,
+  scalafmtOnCompile := true,
   bintrayOrganization := Some("akka"),
   bintrayPackage := "akka-persistence-spanner",
   bintrayRepository := (if (isSnapshot.value) "snapshots" else "maven"),
