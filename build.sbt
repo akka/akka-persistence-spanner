@@ -23,7 +23,7 @@ inThisBuild(
 )
 
 def common: Seq[Setting[_]] = Seq(
-  scalafmtOnCompile := true,
+  scalafmtOnCompile := false,
   bintrayOrganization := Some("akka"),
   bintrayPackage := "akka-persistence-spanner",
   bintrayRepository := (if (isSnapshot.value) "snapshots" else "maven"),
@@ -38,7 +38,7 @@ def common: Seq[Setting[_]] = Seq(
     ),
   headerLicense := Some(
       HeaderLicense.Custom(
-        """Copyright (C) 2018-2019 Lightbend Inc. <http://www.lightbend.com>"""
+        """Copyright (C) 2020 Lightbend Inc. <http://www.lightbend.com>"""
       )
     ),
   logBuffered in Test := System.getProperty("akka.logBufferedTests", "false").toBoolean,

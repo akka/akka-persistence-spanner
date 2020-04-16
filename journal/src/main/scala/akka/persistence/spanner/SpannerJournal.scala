@@ -1,5 +1,5 @@
 /*
- * Copyright (C) 2018-2019 Lightbend Inc. <http://www.lightbend.com>
+ * Copyright (C) 2020 Lightbend Inc. <http://www.lightbend.com>
  */
 
 package akka.persistence.spanner
@@ -11,7 +11,10 @@ import scala.collection.immutable
 import scala.concurrent.Future
 import scala.util.Try
 
-class SpannerJournal extends AsyncWriteJournal {
+/**
+ * INTERNAL API
+ */
+private[akka] final class SpannerJournal extends AsyncWriteJournal {
   override def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = ???
 
   override def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] = ???
