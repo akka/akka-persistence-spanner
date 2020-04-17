@@ -84,7 +84,7 @@ private[spanner] object SessionPool {
                 ctx.scheduleOnce(when, ctx.self, RetrySessionCreation(Duration.Zero))
               }
               Behaviors.same
-            case gt@GetSession(replyTo, id) =>
+            case gt @ GetSession(replyTo, id) =>
               if (stash.isFull) {
                 replyTo ! PoolBusy(id)
               } else {
@@ -112,7 +112,7 @@ private[spanner] final class SessionPool(
   private var inUseSessions = Map.empty[UUID, Session]
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
-    case gt@GetSession(replyTo, id) =>
+    case gt @ GetSession(replyTo, id) =>
       log.info("GetSession from {} in-use {} available{}", replyTo, inUseSessions, availableSessions)
       availableSessions match {
         case x :: xs =>
