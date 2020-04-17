@@ -32,6 +32,9 @@ private[spanner] final class SpannerSettings(config: Config) {
   val fullyQualifiedProject = s"projects/$project"
   val parent = s"$fullyQualifiedProject/instances/$instance"
   val fullyQualifiedDatabase = s"$parent/databases/$database"
+  val useAuth = config.getBoolean("use-auth")
+  val table = config.getString("table")
+  val grpcClient = config.getString("grpc-client")
 
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))
 }

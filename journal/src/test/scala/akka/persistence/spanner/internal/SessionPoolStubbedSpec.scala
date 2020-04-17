@@ -7,19 +7,18 @@ package akka.persistence.spanner.internal
 import java.util.UUID
 
 import akka.actor.testkit.typed.TestException
-import akka.actor.testkit.typed.scaladsl.{ActorTestKit, TestProbe}
+import akka.actor.testkit.typed.scaladsl.{ActorTestKit, ScalaTestWithActorTestKit, TestProbe}
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool.{GetSession, PoolBusy, PooledSession, Response}
 import akka.persistence.spanner.internal.SessionPoolStubbedSpec.{BatchSessionCreateInvocation, StubbedSpannerClient}
 import com.google.spanner.v1.{BatchCreateSessionsRequest, BatchCreateSessionsResponse, Session}
 import com.typesafe.config.ConfigFactory
-import org.scalatest.BeforeAndAfterAll
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.wordspec.AnyWordSpecLike
 
+import scala.concurrent.duration._
 import scala.concurrent.{Future, Promise}
 import scala.util.{Failure, Success}
-import scala.concurrent.duration._
 
 object SessionPoolStubbedSpec {
   case class BatchSessionCreateInvocation(
@@ -35,9 +34,7 @@ object SessionPoolStubbedSpec {
   }
 }
 
-class SessionPoolStubbedSpec extends AnyWordSpecLike with BeforeAndAfterAll with Matchers {
-  val testkit = ActorTestKit()
-
+class SessionPoolStubbedSpec extends ScalaTestWithActorTestKit with Matchers with AnyWordSpecLike {
   val baseSettings = new SpannerSettings(ConfigFactory.parseString("""
          session-pool {
            max-size = 5
@@ -47,11 +44,11 @@ class SessionPoolStubbedSpec extends AnyWordSpecLike with BeforeAndAfterAll with
       """).withFallback(ConfigFactory.load().getConfig("akka.persistence.spanner")))
 
   class Setup() {
-    val probe = testkit.createTestProbe[BatchSessionCreateInvocation]()
+    val probe = testKit.createTestProbe[BatchSessionCreateInvocation]()
     val stub = new StubbedSpannerClient(probe)
-    val pool = testkit.spawn(SessionPool(stub, baseSettings))
+    val pool = testKit.spawn(SessionPool(stub, baseSettings))
     val sessions = List(Session("s1"), Session("s2"))
-    val sessionProbe = testkit.createTestProbe[Response]()
+    val sessionProbe = testKit.createTestProbe[Response]()
     val id1 = UUID.randomUUID()
     val id2 = UUID.randomUUID()
     val id3 = UUID.randomUUID()
@@ -117,10 +114,5 @@ class SessionPoolStubbedSpec extends AnyWordSpecLike with BeforeAndAfterAll with
       pool ! GetSession(sessionProbe.ref, id4)
       sessionProbe.expectMessage(PoolBusy(id4))
     }
-  }
-
-  override protected def afterAll(): Unit = {
-    super.afterAll()
-    testkit.shutdownTestKit()
   }
 }

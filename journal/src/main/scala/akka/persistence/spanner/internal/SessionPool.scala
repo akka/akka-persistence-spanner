@@ -27,6 +27,7 @@ import scala.util.{Failure, Success}
  *  - adaptable size
  *  - deal with broken session
  *  - exponential back off for session creation
+ *  - cleanup on shutdown
  *
  * See google advice for session pools: https://cloud.google.com/spanner/docs/sessions#create_and_size_the_session_cache
  *
@@ -48,10 +49,10 @@ private[spanner] object SessionPool {
 
   def apply(client: SpannerClient, settings: SpannerSettings): Behavior[SessionPool.Command] =
     Behaviors.withStash[Command](settings.sessionPool.maxOutstandingRequests) { stash =>
-      Behaviors.withTimers[Command] { timers: TimerScheduler[Command] =>
+      Behaviors.withTimers[Command] { timers =>
         Behaviors.setup[Command] { ctx =>
           ctx.log.info(
-            "Creating pool. Max size {}. Stash {}.",
+            "Creating pool. Max size [{}]. Stash [{}].",
             settings.sessionPool.maxSize,
             settings.sessionPool.maxOutstandingRequests
           )
@@ -81,7 +82,7 @@ private[spanner] object SessionPool {
                 ctx.log.info("Retrying session creation")
                 createSessions()
               } else {
-                ctx.scheduleOnce(when, ctx.self, RetrySessionCreation(Duration.Zero))
+                timers.startSingleTimer(RetrySessionCreation(Duration.Zero), when)
               }
               Behaviors.same
             case gt @ GetSession(replyTo, id) =>

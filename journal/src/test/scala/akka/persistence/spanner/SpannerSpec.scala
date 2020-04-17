@@ -53,6 +53,7 @@ object SpannerSpec {
 
   def config(databaseName: String): Config =
     ConfigFactory.parseString(s"""
+      akka.persistence.journal.plugin = "akka.persistence.spanner"
       akka.persistence.spanner {
         database = $databaseName
 
@@ -60,6 +61,8 @@ object SpannerSpec {
           # emulator only supports a single transaction at a time
           max-size = 1
         }
+        
+        use-auth = false
       }
       akka.grpc.client.spanner-client {
         host = localhost
@@ -80,25 +83,28 @@ object SpannerSpec {
         write_time TIMESTAMP OPTIONS (allow_commit_timestamp=true),
         writer_uuid STRING(MAX) NOT NULL,
 ) PRIMARY KEY (persistence_id, sequence_nr)
-     """
+  """
+
+  val deleteMetadataTable =
+    """
+    CREATE TABLE deletions (
+        persistence_id STRING(MAX) NOT NULL,
+        deleted_to INT64 NOT NULL,
+      ) PRIMARY KEY (persistence_id)
+  """
 }
 
-/**
- * Spec for running a test against spanner.
- *
- * Assumes a locally running spanner, creates and tears down a database.
- */
-abstract class SpannerSpec(databaseName: String = SpannerSpec.getCallerName(getClass))
+trait SpannerLifecycle
     extends TestKitBase
     with Suite
-    with ScalaFutures
-    with Matchers
     with BeforeAndAfterAll
-    with AnyWordSpecLike {
-  final implicit lazy override val system: ActorSystem = ActorSystem(databaseName, SpannerSpec.config(databaseName))
+    with AnyWordSpecLike
+    with ScalaFutures
+    with Matchers {
+  def databaseName: String
+
   implicit val ec = system.dispatcher
-  implicit val defaultPatience =
-    PatienceConfig(timeout = Span(5, Seconds), interval = Span(5, Millis))
+  implicit val defaultPatience = PatienceConfig(timeout = Span(5, Seconds), interval = Span(5, Millis))
 
   val log = Logging(system, classOf[SpannerSpec])
   val spannerSettings = new SpannerSettings(system.settings.config.getConfig("akka.persistence.spanner"))
@@ -121,7 +127,7 @@ abstract class SpannerSpec(databaseName: String = SpannerSpec.getCallerName(getC
           CreateDatabaseRequest(
             parent = spannerSettings.parent,
             s"CREATE DATABASE ${spannerSettings.database}",
-            List(SpannerSpec.table)
+            List(SpannerSpec.table, SpannerSpec.deleteMetadataTable)
           )
         ),
       10.seconds
@@ -137,9 +143,7 @@ abstract class SpannerSpec(databaseName: String = SpannerSpec.getCallerName(getC
     res
   }
 
-  override protected def afterAll(): Unit = {
-    super.afterAll()
-
+  def cleanup(): Unit = {
     if (failed) {
       log.info("Test failed. Dumping rows")
       val rows = for {
@@ -147,13 +151,34 @@ abstract class SpannerSpec(databaseName: String = SpannerSpec.getCallerName(getC
         execute <- spannerClient.executeSql(
           ExecuteSqlRequest(session = session.name, sql = "select * from messages order by persistence_id, sequence_nr")
         )
+        deletions <- spannerClient.executeSql(
+          ExecuteSqlRequest(session = session.name, sql = "select * from deletions")
+        )
         _ <- spannerClient.deleteSession(DeleteSessionRequest(session.name))
-      } yield execute.rows
-      rows.futureValue.foreach(row => log.info("row: {} ", row))
-      log.info("Rows dumped.")
+      } yield (execute.rows, deletions.rows)
+      val (messageRows, deletionRows) = rows.futureValue
+      messageRows.foreach(row => log.info("row: {} ", row))
+      log.info("Message rows dumped.")
+      deletionRows.foreach(row => log.info("row: {} ", row))
+      log.info("Deletion rows dumped.")
     }
 
     adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
     log.info("Database dropped {}", spannerSettings.database)
   }
+
+  override protected def afterAll(): Unit = {
+    cleanup()
+    super.afterAll()
+  }
+}
+
+/**
+ * Spec for running a test against spanner.
+ *
+ * Assumes a locally running spanner, creates and tears down a database.
+ */
+abstract class SpannerSpec(override val databaseName: String = SpannerSpec.getCallerName(getClass))
+    extends SpannerLifecycle {
+  final implicit lazy override val system: ActorSystem = ActorSystem(databaseName, SpannerSpec.config(databaseName))
 }
