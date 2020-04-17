@@ -84,9 +84,9 @@ private[spanner] object SessionPool {
                 ctx.scheduleOnce(when, ctx.self, RetrySessionCreation(Duration.Zero))
               }
               Behaviors.same
-            case gt: GetSession =>
+            case gt@GetSession(replyTo, id) =>
               if (stash.isFull) {
-                gt.replyTo ! PoolBusy(gt.id)
+                replyTo ! PoolBusy(id)
               } else {
                 stash.stash(gt)
               }
@@ -108,20 +108,20 @@ private[spanner] final class SessionPool(
     stash: StashBuffer[Command]
 ) extends AbstractBehavior[SessionPool.Command](ctx) {
   private val log = ctx.log
-  private var unusedSessions = initialSessions
-  private var usedSessions = Map.empty[UUID, Session]
+  private var availableSessions = initialSessions
+  private var inUseSessions = Map.empty[UUID, Session]
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
-    case gt: GetSession =>
-      log.info("GetSession from {} used {} unused {}", gt.replyTo, usedSessions, unusedSessions)
-      unusedSessions match {
+    case gt@GetSession(replyTo, id) =>
+      log.info("GetSession from {} in-use {} available{}", replyTo, inUseSessions, availableSessions)
+      availableSessions match {
         case x :: xs =>
-          gt.replyTo ! PooledSession(x, gt.id)
-          unusedSessions = xs
-          usedSessions += (gt.id -> x)
+          replyTo ! PooledSession(x, id)
+          availableSessions = xs
+          inUseSessions += (id -> x)
         case Nil =>
           if (stash.isFull) {
-            gt.replyTo ! PoolBusy(gt.id)
+            replyTo ! PoolBusy(id)
           } else {
             stash.stash(gt)
           }
@@ -129,22 +129,22 @@ private[spanner] final class SessionPool(
       this
     case ReleaseSession(id) =>
       log.info("ReleaseSession {}", id)
-      if (usedSessions.contains(id)) {
-        val session = usedSessions(id)
-        usedSessions -= id
-        unusedSessions = session :: unusedSessions
+      if (inUseSessions.contains(id)) {
+        val session = inUseSessions(id)
+        inUseSessions -= id
+        availableSessions = session :: availableSessions
         stash.unstash(this, 1, identity)
       } else {
         log.error(
-          "unknown session returned {}. This is a bug. Used sessions {}. Unused sessions {}",
+          "unknown session returned {}. This is a bug. In-use sessions {}. Available sessions {}",
           id,
-          usedSessions,
-          unusedSessions
+          inUseSessions,
+          availableSessions
         )
-        Behaviors.same
+        this
       }
     case other =>
       log.error("Unexpected message in active state {}", other)
-      Behaviors.same
+      this
   }
 }

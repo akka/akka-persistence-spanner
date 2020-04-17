@@ -56,8 +56,10 @@ object SpannerSpec {
       akka.persistence.spanner {
         database = $databaseName
 
-        # emulator only supports a single transaction at a time
-        max-sessions = 1
+        session-pool {
+          # emulator only supports a single transaction at a time
+          max-size = 1
+        }
       }
       akka.grpc.client.spanner-client {
         host = localhost

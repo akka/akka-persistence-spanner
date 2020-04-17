@@ -7,31 +7,7 @@ package akka.persistence.spanner.internal
 import akka.stream.scaladsl.Source
 import akka.{Done, NotUsed}
 import com.google.protobuf.empty.Empty
-import com.google.spanner.v1.{
-  BatchCreateSessionsRequest,
-  BatchCreateSessionsResponse,
-  BeginTransactionRequest,
-  CommitRequest,
-  CommitResponse,
-  CreateSessionRequest,
-  DeleteSessionRequest,
-  ExecuteBatchDmlRequest,
-  ExecuteBatchDmlResponse,
-  ExecuteSqlRequest,
-  GetSessionRequest,
-  ListSessionsRequest,
-  ListSessionsResponse,
-  PartialResultSet,
-  PartitionQueryRequest,
-  PartitionReadRequest,
-  PartitionResponse,
-  ReadRequest,
-  ResultSet,
-  RollbackRequest,
-  Session,
-  SpannerClient,
-  Transaction
-}
+import com.google.spanner.v1._
 
 import scala.concurrent.Future
 
