@@ -11,8 +11,11 @@ import com.google.spanner.v1.PartialResultSet
 
 /**
  * INTERNAL API
+ *
+ * Recombines chunked `PartialResultSet`s coming from upstream into single result sets going downstream.
  */
-@InternalApi object PartialResultSetFlow extends GraphStage[FlowShape[PartialResultSet, PartialResultSet]] {
+@InternalApi private[akka] object PartialResultSetDechunker
+    extends GraphStage[FlowShape[PartialResultSet, PartialResultSet]] {
   // Custom graphstage avoids alloc per element in the happy case required by using statefulMapConcat
   val in = Inlet[PartialResultSet](Logging.simpleName(this) + ".in")
   val out = Outlet[PartialResultSet](Logging.simpleName(this) + ".out")

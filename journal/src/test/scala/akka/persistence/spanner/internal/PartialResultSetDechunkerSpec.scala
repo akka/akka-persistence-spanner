@@ -10,8 +10,8 @@ import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.must.Matchers
 import org.scalatest.wordspec.{AnyWordSpec, AnyWordSpecLike}
 
-class PartialResultSetFlowSpec
-    extends TestKit(ActorSystem(classOf[PartialResultSetFlowSpec].getSimpleName))
+class PartialResultSetDechunkerSpec
+    extends TestKit(ActorSystem(classOf[PartialResultSetDechunkerSpec].getSimpleName))
     with AnyWordSpecLike
     with Matchers
     with ScalaFutures {
@@ -151,7 +151,7 @@ class PartialResultSetFlowSpec
     examples.foreach {
       case Example(name, firstPart, secondPart, expectedCombined) =>
         s"recombine values $name" in {
-          PartialResultSetFlow.recombine(Value(firstPart), Value(secondPart)) must ===(Value(expectedCombined))
+          PartialResultSetDechunker.recombine(Value(firstPart), Value(secondPart)) must ===(Value(expectedCombined))
         }
 
         s"recombine partial resultsets with $name" in {
@@ -165,7 +165,7 @@ class PartialResultSetFlowSpec
                 values = Seq(Value(secondPart))
               )
             )
-          ).via(PartialResultSetFlow).runWith(Sink.seq)
+          ).via(PartialResultSetDechunker).runWith(Sink.seq)
 
           val resultSets = futureResult.futureValue
           resultSets must have size (1)
@@ -174,7 +174,7 @@ class PartialResultSetFlowSpec
         }
     }
 
-    "pass non chunked resulsets as is" in {
+    "pass non chunked resultsets as is" in {
       val resultSets = Seq(
         PartialResultSet(
           values = Seq(Value(Kind.StringValue("ha")))
@@ -186,11 +186,11 @@ class PartialResultSetFlowSpec
           values = Seq(Value(Kind.StringValue("er")))
         )
       )
-      val futureResult = Source(resultSets).via(PartialResultSetFlow).runWith(Sink.seq)
+      val futureResult = Source(resultSets).via(PartialResultSetDechunker).runWith(Sink.seq)
       futureResult.futureValue must ===(resultSets)
     }
 
-    "recombine more than two chunked subsequent partial resultsets" in {
+    "dechunk more than two chunked subsequent partial resultsets" in {
       val futureResult = Source(
         Seq(
           PartialResultSet(
@@ -205,7 +205,7 @@ class PartialResultSetFlowSpec
             values = Seq(Value(Kind.StringValue("er")))
           )
         )
-      ).via(PartialResultSetFlow).runWith(Sink.seq)
+      ).via(PartialResultSetDechunker).runWith(Sink.seq)
 
       val resultSets = futureResult.futureValue
       resultSets must have size (1)

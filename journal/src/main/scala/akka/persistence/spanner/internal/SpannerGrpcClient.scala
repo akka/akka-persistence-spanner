@@ -6,7 +6,7 @@ package akka.persistence.spanner.internal
 
 import java.util.UUID
 
-import akka.NotUsed
+import akka.{Done, NotUsed}
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.adapter._
 import akka.actor.typed.{ActorRef, ActorSystem}
@@ -64,52 +64,25 @@ private[spanner] object SpannerGrpcClient {
       sql: String,
       params: Struct,
       paramTypes: Map[String, Type]
-  ): Source[Seq[Value], Future[NotUsed]] = {
+  ): Source[Seq[Value], Future[Done]] = {
     val sessionId = UUID.randomUUID()
     val result = getSession(sessionId).map { session =>
       client
         .executeStreamingSql(
           ExecuteSqlRequest(session.session.name, sql = sql, params = Some(params), paramTypes = paramTypes)
         )
-        .mapMaterializedValue(f => f)
-        .statefulMapConcat { () =>
-          {
-            var previousPartialRow: Seq[Value] = Nil
-            var columns: Seq[StructType.Field] = null
-            partialResultSet => {
-              // it is the first row, will contain metadata for columns
-              if (columns == null) {
-                columns = partialResultSet.metadata.get.rowType.get.fields
-              }
-              log.debug("result set {}", partialResultSet)
-              assert(columns != null, "received a row without first receiving metadata")
-              val newValues = previousPartialRow ++ partialResultSet.values
-              // TODO handle chunked values https://github.com/akka/akka-persistence-spanner/issues/11
-              if (newValues.size >= columns.size) {
-                val grouped = newValues.grouped(columns.size).toList
-                if (grouped.last.size != columns.size) {
-                  previousPartialRow = grouped.last
-                } else {
-                  previousPartialRow = Nil
-                }
-                grouped.takeWhile(_.size == columns.size)
-              } else {
-                previousPartialRow = newValues
-                List.empty[Seq[Value]]
-              }
-            }
-          }
-        }
+        .via(PartialResultSetDechunker)
+        .wireTap(partialResultSet => log.debug("result set {}", partialResultSet))
+        .via(RowCollector())
     }
     Source
       .futureSource(result)
-      .mapMaterializedValue(f => {
-        f.onComplete(_ => {
-          // TODO double check this is after the Source has completed, not when the Future containing the source completes
+      .watchTermination() { (_, terminationFuture) =>
+        terminationFuture.onComplete { _ =>
           pool.tell(ReleaseSession(sessionId))
-        })
-        f
-      })
+        }
+        terminationFuture
+      }
   }
 
   /**

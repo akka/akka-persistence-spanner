@@ -13,6 +13,7 @@ import akka.persistence.PersistentRepr
 import akka.persistence.spanner.SpannerInteractions.SerializedWrite
 import akka.persistence.spanner.internal.SpannerGrpcClient
 import akka.serialization.Serialization
+import akka.util.ConstantFun
 import com.google.protobuf.struct.Value.Kind.StringValue
 import com.google.protobuf.struct.{ListValue, Struct, Value}
 import com.google.spanner.v1.{Mutation, Type, TypeCode}
@@ -246,7 +247,7 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
         ),
         paramTypes = Schema.ReplayTypes
       )
-      .runForeach(row => replayRow(row))
-      .map(_ => ())
+      .runForeach(replayRow)
+      .map(ConstantFun.scalaAnyToUnit)
   }
 }
