@@ -16,7 +16,7 @@ import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
 import akka.stream.scaladsl.Source
 import akka.util.Timeout
-import com.google.protobuf.struct.Value.Kind.StringValue
+import com.google.protobuf.ByteString
 import com.google.protobuf.struct.{Struct, Value}
 import com.google.rpc.Code
 import com.google.spanner.v1.CommitRequest.Transaction
@@ -31,17 +31,12 @@ import scala.util.{Failure, Success}
  */
 @InternalApi
 private[spanner] object SpannerGrpcClient {
-  val DeleteStatementTypes = Map(
-    "persistence_id" -> Type(TypeCode.STRING),
-    "sequence_nr" -> Type(TypeCode.INT64)
-  )
-
-  final class DeleteFailedException(persistenceId: String, code: Int, message: String, details: Any)
-      extends RuntimeException(s"Delete for persistence id failed. Code $code. Message: $message. Params: $details")
+  final class TransactionFailed(code: Int, message: String, details: Any)
+      extends RuntimeException(s"Code $code. Message: $message. Params: $details")
 }
 
 /**
- * A thin wrapper around the gRPC client to expose only what the plugin needs
+ * A thin wrapper around the gRPC client to expose only what the plugin needs.
  *
  * TODO handle all status codes https://github.com/akka/akka-persistence-spanner/issues/14
  */
@@ -59,10 +54,6 @@ private[spanner] object SpannerGrpcClient {
   private implicit val timeout = Timeout(5.seconds)
 
   private val log = Logging(system.toClassic, classOf[SpannerGrpcClient])
-  private val SqlDeleteInsertToDeletions =
-    s"INSERT INTO ${settings.deletionsTable}(persistence_id, deleted_to) VALUES (@persistence_id, @sequence_nr)"
-  private val SqlDelete =
-    s"DELETE FROM ${settings.table} where persistence_id = @persistence_id AND sequence_nr <= @sequence_nr"
 
   def streamingQuery(
       sql: String,
@@ -135,18 +126,24 @@ private[spanner] object SpannerGrpcClient {
     write
   }
 
-  def executeDelete(persistenceId: String, toSequenceNr: Long): Future[Unit] = {
-    // TODO on timeout clean up session request
-    log.info("executing delete for [{}] to [{}]", persistenceId, toSequenceNr)
-    val params = Some(
-      Struct(
-        Map(
-          "persistence_id" -> Value(StringValue(persistenceId)),
-          "sequence_nr" -> Value(StringValue(toSequenceNr.toString))
-        )
-      )
-    )
+  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])]): Future[Unit] = {
     val sessionUuid = UUID.randomUUID()
+    def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
+      val s = statements.map {
+        case (sql, params, types) =>
+          ExecuteBatchDmlRequest.Statement(
+            sql,
+            Some(params),
+            types
+          )
+      }
+      ExecuteBatchDmlRequest(
+        sessionId,
+        transaction = Some(TransactionSelector(TransactionSelector.Selector.Id(transactionId))),
+        s
+      )
+    }
+
     val query = for {
       session <- getSession(sessionUuid)
       transaction <- client.beginTransaction(
@@ -155,29 +152,12 @@ private[spanner] object SpannerGrpcClient {
           Some(TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite())))
         )
       )
-      resultSet <- client.executeBatchDml(
-        ExecuteBatchDmlRequest(
-          session.session.name,
-          transaction = Some(TransactionSelector(TransactionSelector.Selector.Id(transaction.id))),
-          statements = List(
-            ExecuteBatchDmlRequest.Statement(
-              SqlDelete,
-              params,
-              SpannerGrpcClient.DeleteStatementTypes
-            ),
-            ExecuteBatchDmlRequest.Statement(
-              SqlDeleteInsertToDeletions,
-              params,
-              SpannerGrpcClient.DeleteStatementTypes
-            )
-          )
-        )
-      )
+      resultSet <- client.executeBatchDml(createBatchDmlRequest(session.session.name, transaction.id))
       status = {
         resultSet.status match {
           case Some(status) if status.code != Code.OK.index =>
-            log.warning("Delete failed with status {}", resultSet.status)
-            Future.failed(new DeleteFailedException(persistenceId, status.code, status.message, status.details))
+            log.warning("Transaction failed with status {}", resultSet.status)
+            Future.failed(new TransactionFailed(status.code, status.message, status.details))
           case _ => Future.successful(())
         }
       }
