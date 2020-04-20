@@ -11,7 +11,7 @@ import akka.actor.typed.scaladsl.adapter._
 import akka.event.Logging
 import akka.grpc.GrpcClientSettings
 import akka.persistence.journal.{AsyncWriteJournal, Tagged}
-import akka.persistence.spanner.Schema.Columns
+import akka.persistence.spanner.Schema.Journal
 import akka.persistence.spanner.internal.{SessionPool, SpannerGrpcClient}
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.serialization.{SerializationExtension, Serializers}
@@ -26,22 +26,18 @@ import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
 object Schema {
-  val Table = "messages"
-  object Columns {
+  object Journal {
     val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
     val SeqNr = "sequence_nr" -> Type(TypeCode.INT64)
-    val Payload = "payload" -> Type(TypeCode.BYTES)
+    val Event = "event" -> Type(TypeCode.BYTES)
     val SerId = "ser_id" -> Type(TypeCode.INT64)
     val SerManifest = "ser_manifest" -> Type(TypeCode.STRING)
     val WriteTime = "write_time" -> Type(TypeCode.TIMESTAMP)
     val WriterUUID = "writer_uuid" -> Type(TypeCode.STRING)
     val Tags = "tags" -> Type(TypeCode.ARRAY)
 
-    val Columns = List(PersistenceId, SeqNr, Payload, SerId, SerManifest, WriteTime, WriterUUID, Tags).map(_._1)
+    val Columns = List(PersistenceId, SeqNr, Event, SerId, SerManifest, WriteTime, WriterUUID, Tags).map(_._1)
   }
-
-  val ReplaySql =
-    s"SELECT ${Columns.Columns.mkString(",")} FROM messages WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr limit @max"
 
   val ReplayTypes = Map(
     "persistence_id" -> Type(TypeCode.STRING),
@@ -59,6 +55,15 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
 
   private val serialization = SerializationExtension(context.system)
   private val journalSettings = new SpannerSettings(config)
+
+  val ReplaySql =
+    s"SELECT ${Journal.Columns.mkString(",")} FROM ${journalSettings.table} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr limit @max"
+
+  val HighestDeleteSelectSql =
+    s"SELECT deleted_to FROM ${journalSettings.deletionsTable} WHERE persistence_id = @persistence_id"
+
+  val HighestSequenceNrSql =
+    s"SELECT sequence_nr FROM ${journalSettings.table} WHERE persistence_id = @persistence_id AND sequence_nr >= @sequence_nr ORDER BY sequence_nr DESC LIMIT 1"
 
   private val grpcClient: SpannerClient =
     if (journalSettings.useAuth) {
@@ -80,35 +85,35 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
   // TODO shutdown?
   private val sessionPool = context.spawn(SessionPool.apply(grpcClient, journalSettings), "session-pool")
 
-  private val spannerGrpcClient = new SpannerGrpcClient(grpcClient, system.toTyped, sessionPool)
+  private val spannerGrpcClient = new SpannerGrpcClient(grpcClient, system.toTyped, sessionPool, journalSettings)
 
   override def asyncWriteMessages(messages: Seq[AtomicWrite]): Future[Seq[Try[Unit]]] = {
     def atomicWrite(atomicWrite: AtomicWrite): Future[Try[Unit]] = {
       val mutations: Try[Seq[Mutation]] = Try {
         atomicWrite.payload.map { pr =>
-          val (payload, tags) = pr.payload match {
+          val (event, tags) = pr.payload match {
             case Tagged(payload, tags) => (payload.asInstanceOf[AnyRef], tags)
             case other => (other.asInstanceOf[AnyRef], Set.empty)
           }
           val serializedTags: List[Value] = tags.map(s => Value(StringValue(s))).toList
-          val serialized = serialization.serialize(payload).get
-          val serializer = serialization.findSerializerFor(payload)
-          val manifest = Serializers.manifestFor(serializer, payload)
+          val serialized = serialization.serialize(event).get
+          val serializer = serialization.findSerializerFor(event)
+          val manifest = Serializers.manifestFor(serializer, event)
           val id: Int = serializer.identifier
 
-          val payloadAsString = Base64.getEncoder.encodeToString(serialized)
+          val serializedAsString = Base64.getEncoder.encodeToString(serialized)
 
           Mutation(
             Mutation.Operation.Insert(
               Mutation.Write(
                 journalSettings.table,
-                Columns.Columns,
+                Journal.Columns,
                 List(
                   ListValue(
                     List(
                       Value(StringValue(pr.persistenceId)),
                       Value(StringValue(pr.sequenceNr.toString)),
-                      Value(StringValue(payloadAsString)),
+                      Value(StringValue(serializedAsString)),
                       Value(StringValue(id.toString)),
                       Value(StringValue(manifest)),
                       // special value for a timestamp that gets the write timestamp
@@ -127,7 +132,7 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
       log.debug("writing mutations [{}]", mutations)
 
       mutations match {
-        case Success(mutations) => spannerGrpcClient.write(mutations).map(_ => Success(()))
+        case Success(mutations) => spannerGrpcClient.write(mutations).map(_ => Success(()))(ExecutionContext.parasitic)
         case Failure(t) => Future.successful(Failure(t))
       }
     }
@@ -159,7 +164,6 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
       val payloadAsString = values(2).getStringValue
       val serId = values(3).getStringValue.toInt
       val serManifest = values(4).getStringValue
-      val writeTimestamp = values(5).getStringValue
       val writerUuid = values(6).getStringValue
 
       val payloadAsBytes = Base64.getDecoder.decode(payloadAsString)
@@ -175,13 +179,13 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
       recoveryCallback(repr)
     }
 
-    log.info("asyncReplayMessages {} {} {}", persistenceId, fromSequenceNr, toSequenceNr)
+    log.debug("asyncReplayMessages {} {} {}", persistenceId, fromSequenceNr, toSequenceNr)
     spannerGrpcClient
       .streamingQuery(
-        Schema.ReplaySql,
+        ReplaySql,
         params = Struct(
           fields = Map(
-            Columns.PersistenceId._1 -> Value(StringValue(persistenceId)),
+            Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
             "from_sequence_nr" -> Value(StringValue(fromSequenceNr.toString)),
             "to_sequence_nr" -> Value(StringValue(toSequenceNr.toString)),
             "max" -> Value(StringValue(max.toString))
@@ -198,14 +202,14 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
     val maxDeletedTo: Future[Long] = findHighestDeletedTo(persistenceId)
     val maxSequenceNr: Future[Long] = spannerGrpcClient
       .executeQuery(
-        "SELECT sequence_nr FROM messages WHERE persistence_id = @persistence_id AND sequence_nr >= @sequence_nr ORDER BY sequence_nr DESC LIMIT 1",
+        HighestSequenceNrSql,
         Struct(
           Map(
-            Columns.PersistenceId._1 -> Value(StringValue(persistenceId)),
-            Columns.SeqNr._1 -> Value(StringValue(fromSequenceNr.toString))
+            Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
+            Journal.SeqNr._1 -> Value(StringValue(fromSequenceNr.toString))
           )
         ),
-        Map(Columns.PersistenceId, Columns.SeqNr)
+        Map(Journal.PersistenceId, Journal.SeqNr)
       )
       .map(
         resultSet =>
@@ -233,13 +237,13 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
   private def findHighestDeletedTo(persistenceId: String): Future[Long] =
     spannerGrpcClient
       .executeQuery(
-        s"SELECT deleted_to FROM deletions WHERE persistence_id = @persistence_id",
+        HighestDeleteSelectSql,
         Struct(
           Map(
-            Columns.PersistenceId._1 -> Value(StringValue(persistenceId))
+            Journal.PersistenceId._1 -> Value(StringValue(persistenceId))
           )
         ),
-        Map(Columns.PersistenceId)
+        Map(Journal.PersistenceId)
       )
       .map { resultSet =>
         if (resultSet.rows.isEmpty) 0L

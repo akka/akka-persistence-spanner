@@ -12,11 +12,13 @@ import akka.actor.typed.scaladsl.adapter._
 import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.annotation.InternalApi
 import akka.event.Logging
+import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
 import akka.stream.scaladsl.Source
 import akka.util.Timeout
 import com.google.protobuf.struct.Value.Kind.StringValue
 import com.google.protobuf.struct.{Struct, Value}
+import com.google.rpc.Code
 import com.google.spanner.v1.CommitRequest.Transaction
 import com.google.spanner.v1._
 
@@ -33,6 +35,9 @@ private[spanner] object SpannerGrpcClient {
     "persistence_id" -> Type(TypeCode.STRING),
     "sequence_nr" -> Type(TypeCode.INT64)
   )
+
+  final class DeleteFailedException(persistenceId: String, code: Int, message: String, details: Any)
+      extends RuntimeException(s"Delete for persistence id failed. Code $code. Message: $message. Params: $details")
 }
 
 /**
@@ -43,14 +48,21 @@ private[spanner] object SpannerGrpcClient {
 @InternalApi private[spanner] final class SpannerGrpcClient(
     client: SpannerClient,
     system: ActorSystem[_],
-    pool: ActorRef[SessionPool.Command]
+    pool: ActorRef[SessionPool.Command],
+    settings: SpannerSettings
 ) {
+  import SpannerGrpcClient._
+
   private implicit val _system = system
   private implicit val ec = system.executionContext
   // TODO config
   private implicit val timeout = Timeout(5.seconds)
 
   private val log = Logging(system.toClassic, classOf[SpannerGrpcClient])
+  private val SqlDeleteInsertToDeletions =
+    s"INSERT INTO ${settings.deletionsTable}(persistence_id, deleted_to) VALUES (@persistence_id, @sequence_nr)"
+  private val SqlDelete =
+    s"DELETE FROM ${settings.table} where persistence_id = @persistence_id AND sequence_nr <= @sequence_nr"
 
   def streamingQuery(
       sql: String,
@@ -125,8 +137,7 @@ private[spanner] object SpannerGrpcClient {
 
   def executeDelete(persistenceId: String, toSequenceNr: Long): Future[Unit] = {
     // TODO on timeout clean up session request
-    val sqlDelete = s"DELETE FROM messages where persistence_id = @persistence_id AND sequence_nr <= @sequence_nr"
-    val sqlInsert = s"INSERT INTO deletions(persistence_id, deleted_to) VALUES (@persistence_id, @sequence_nr)"
+    log.info("executing delete for [{}] to [{}]", persistenceId, toSequenceNr)
     val params = Some(
       Struct(
         Map(
@@ -150,26 +161,31 @@ private[spanner] object SpannerGrpcClient {
           transaction = Some(TransactionSelector(TransactionSelector.Selector.Id(transaction.id))),
           statements = List(
             ExecuteBatchDmlRequest.Statement(
-              sqlDelete,
+              SqlDelete,
               params,
               SpannerGrpcClient.DeleteStatementTypes
             ),
             ExecuteBatchDmlRequest.Statement(
-              sqlInsert,
+              SqlDeleteInsertToDeletions,
               params,
               SpannerGrpcClient.DeleteStatementTypes
             )
           )
         )
       )
+      status = {
+        resultSet.status match {
+          case Some(status) if status.code != Code.OK.index =>
+            log.warning("Delete failed with status {}", resultSet.status)
+            Future.failed(new DeleteFailedException(persistenceId, status.code, status.message, status.details))
+          case _ => Future.successful(())
+        }
+      }
       _ <- client.commit(CommitRequest(session.session.name, CommitRequest.Transaction.TransactionId(transaction.id)))
     } yield {
-      // cleanup in https://github.com/akka/akka-persistence-spanner/issues/14
-      resultSet.status.foreach { status =>
-        log.info("status from delete {}", status)
-      }
-      ()
+      status
     }
+
     // TODO don't do this if we got pool is busy
     query.onComplete(_ => pool.tell(ReleaseSession(sessionUuid)))
     query.map(_ => ())
@@ -188,7 +204,9 @@ private[spanner] object SpannerGrpcClient {
           paramTypes = paramTypes
         )
       )
-    } yield resultSet
+    } yield {
+      resultSet
+    }
     // TODO don't do this if we got pool is busy
     query.onComplete(_ => pool.tell(ReleaseSession(sessionUuid)))
     query

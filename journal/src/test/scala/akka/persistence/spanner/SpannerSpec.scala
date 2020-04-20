@@ -73,10 +73,10 @@ object SpannerSpec {
 
   val table =
     """
-  CREATE TABLE messages (
+  CREATE TABLE journal (
         persistence_id STRING(MAX) NOT NULL,
         sequence_nr INT64 NOT NULL,
-        payload BYTES(MAX),
+        event BYTES(MAX),
         ser_id INT64 NOT NULL,
         ser_manifest STRING(MAX) NOT NULL,
         tags ARRAY<STRING(MAX)>,
@@ -149,10 +149,13 @@ trait SpannerLifecycle
       val rows = for {
         session <- spannerClient.createSession(CreateSessionRequest(spannerSettings.fullyQualifiedDatabase))
         execute <- spannerClient.executeSql(
-          ExecuteSqlRequest(session = session.name, sql = "select * from messages order by persistence_id, sequence_nr")
+          ExecuteSqlRequest(
+            session = session.name,
+            sql = s"select * from ${spannerSettings.table} order by persistence_id, sequence_nr"
+          )
         )
         deletions <- spannerClient.executeSql(
-          ExecuteSqlRequest(session = session.name, sql = "select * from deletions")
+          ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.deletionsTable}")
         )
         _ <- spannerClient.deleteSession(DeleteSessionRequest(session.name))
       } yield (execute.rows, deletions.rows)
