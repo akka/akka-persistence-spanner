@@ -71,9 +71,7 @@ private[spanner] object SpannerGrpcClient {
         .executeStreamingSql(
           ExecuteSqlRequest(session.session.name, sql = sql, params = Some(params), paramTypes = paramTypes)
         )
-        .via(PartialResultSetDechunker)
-        .wireTap(partialResultSet => log.debug("result set {}", partialResultSet))
-        .via(RowCollector())
+        .via(RowCollector)
     }
     Source
       .futureSource(result)
