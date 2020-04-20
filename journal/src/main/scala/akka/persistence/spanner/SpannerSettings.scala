@@ -16,10 +16,14 @@ import scala.jdk.DurationConverters._
 private[spanner] object SpannerSettings {
   final class SessionPoolSettings(config: Config) {
     val maxSize = config.getInt("max-size")
+    // Spanner only supports 100 sessions per gRPC channel. We'd need multiple channels to support
+    // more
+    require(maxSize <= 100, "session-pool.max-size must be <= 100")
     val retryCreateInterval = config.getDuration("retry-create-interval").toScala
     val maxOutstandingRequests = config.getInt("max-outstanding-requests")
     val restartMinBackoff = config.getDuration("restart-min-backoff").toScala
     val restartMaxBackoff = config.getDuration("restart-max-backoff").toScala
+    val keepAliveInterval = config.getDuration("keep-alive-interval").toScala
   }
 }
 
