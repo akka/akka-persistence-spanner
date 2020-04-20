@@ -107,6 +107,11 @@ private[spanner] object SpannerGrpcClient {
       })
   }
 
+  /**
+   * This doesn't do retries. See
+   * https://github.com/akka/akka-persistence-spanner/issues/18 for re-trying
+   * with the same session
+   */
   def write(mutations: Seq[Mutation]): Future[Unit] = {
     val sessionUuid = UUID.randomUUID()
     val write = for {
@@ -121,11 +126,20 @@ private[spanner] object SpannerGrpcClient {
         )
       )
     } yield ()
+
     // TODO don't do this if we got pool is busy
     write.onComplete(_ => pool.tell(ReleaseSession(sessionUuid)))
     write
   }
 
+  /**
+   * Executes all the statements in a single BatchDML statement.
+   *
+   * @param statements to execute along with their params and param types
+   * @return Future is completed with faiure if status.code != Code.OK. In that case
+   *         the transaction won't be commited and none of the modifications will have
+   *         happened.
+   */
   def executeBatchDml(statements: List[(String, Struct, Map[String, Type])]): Future[Unit] = {
     val sessionUuid = UUID.randomUUID()
     def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
@@ -171,6 +185,12 @@ private[spanner] object SpannerGrpcClient {
     query.map(_ => ())
   }
 
+  /**
+   * Execute a small query. Result can not be larger than 10 MiB. Larger results
+   * should use `executeStreamingSql`
+   *
+   * Uses a single use read only transaction.
+   */
   def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type]): Future[ResultSet] = {
     // TODO on timeout clean up session request
     val sessionUuid = UUID.randomUUID()
