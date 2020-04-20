@@ -53,49 +53,14 @@ import com.google.spanner.v1.PartialResultSet
           // if not we got invalid data
           columnsPerRow = currentSet.metadata.get.rowType.get.fields.size
         }
-        incompleteRow match {
-          case OptionVal.None =>
-            val rows = currentSet.values.grouped(columnsPerRow).toSeq
-            if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
-              emitMultiple(out, rows)
-            } else {
-              // first part of chunk or rows split across to the next set
-              incompleteChunked = currentSet.chunkedValue
-              incompleteRow = OptionVal.Some(rows.last)
-              val initial = rows.init
-              if (initial.nonEmpty)
-                emitMultiple(out, initial)
-              else
-                pull(in)
-            }
-
-          case OptionVal.Some(incomplete) =>
-            if (incompleteChunked) {
-              // last was an incomplete value (chunked) - recombine
-              val combined = recombine(incomplete, currentSet.values)
-              val rows = combined.grouped(columnsPerRow).toSeq
+        if (currentSet.values.nonEmpty) {
+          incompleteRow match {
+            case OptionVal.None =>
+              val rows = currentSet.values.grouped(columnsPerRow).toSeq
               if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
-                incompleteRow = OptionVal.None
                 emitMultiple(out, rows)
               } else {
-                // last row incomplete or chunked
-                incompleteChunked = currentSet.chunkedValue
-                incompleteRow = OptionVal.Some(rows.last)
-                val initial = rows.init
-                if (initial.nonEmpty)
-                  emitMultiple(out, initial)
-                else {
-                  pull(in)
-                }
-              }
-            } else {
-              // last row incomplete or chunked
-              val rows = (incomplete ++ currentSet.values).grouped(columnsPerRow).toSeq
-              if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
-                incompleteRow = OptionVal.None
-                emitMultiple(out, rows)
-              } else {
-                // last incomplete or chunked
+                // first part of chunk or rows split across to the next set
                 incompleteChunked = currentSet.chunkedValue
                 incompleteRow = OptionVal.Some(rows.last)
                 val initial = rows.init
@@ -104,7 +69,47 @@ import com.google.spanner.v1.PartialResultSet
                 else
                   pull(in)
               }
-            }
+
+            case OptionVal.Some(incomplete) =>
+              if (incompleteChunked) {
+                // last was an incomplete value (chunked) - recombine
+                val combined = recombine(incomplete, currentSet.values)
+                val rows = combined.grouped(columnsPerRow).toSeq
+                if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
+                  incompleteRow = OptionVal.None
+                  emitMultiple(out, rows)
+                } else {
+                  // last row incomplete or chunked
+                  incompleteChunked = currentSet.chunkedValue
+                  incompleteRow = OptionVal.Some(rows.last)
+                  val initial = rows.init
+                  if (initial.nonEmpty)
+                    emitMultiple(out, initial)
+                  else {
+                    pull(in)
+                  }
+                }
+              } else {
+                // last row incomplete or chunked
+                val rows = (incomplete ++ currentSet.values).grouped(columnsPerRow).toSeq
+                if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
+                  incompleteRow = OptionVal.None
+                  emitMultiple(out, rows)
+                } else {
+                  // last incomplete or chunked
+                  incompleteChunked = currentSet.chunkedValue
+                  incompleteRow = OptionVal.Some(rows.last)
+                  val initial = rows.init
+                  if (initial.nonEmpty)
+                    emitMultiple(out, initial)
+                  else
+                    pull(in)
+                }
+              }
+          }
+        } else {
+          // empty resultset
+          pull(in)
         }
       }
 
