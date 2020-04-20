@@ -6,12 +6,15 @@ package akka.persistence.spanner
 
 import java.util.Base64
 
+import akka.Done
 import akka.actor.ActorSystem
 import akka.actor.typed.scaladsl.adapter._
+import akka.annotation.InternalApi
 import akka.event.Logging
 import akka.grpc.GrpcClientSettings
 import akka.persistence.journal.{AsyncWriteJournal, Tagged}
 import akka.persistence.spanner.SpannerInteractions.SerializedWrite
+import akka.persistence.spanner.SpannerJournal.WriteFinished
 import akka.persistence.spanner.internal.{SessionPool, SpannerGrpcClient}
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.serialization.{Serialization, SerializationExtension, Serializers}
@@ -23,7 +26,15 @@ import io.grpc.auth.MoreCallCredentials
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
-class SpannerJournal(config: Config) extends AsyncWriteJournal {
+object SpannerJournal {
+  case class WriteFinished(persistenceId: String, done: Future[_])
+}
+
+/**
+ * INTERNAL API
+ */
+@InternalApi
+final class SpannerJournal(config: Config) extends AsyncWriteJournal {
   implicit val system: ActorSystem = context.system
   implicit val ec: ExecutionContext = context.dispatcher
 
@@ -56,6 +67,15 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
     new SpannerGrpcClient(grpcClient, system.toTyped, sessionPool, journalSettings),
     journalSettings
   )
+
+  // if there are pending writes when an actor restarts we must wait for
+  // them to complete before we can read the highest sequence number or we will miss it
+  private val writesInProgress = new java.util.HashMap[String, Future[_]]()
+
+  override def receivePluginInternal: Receive = {
+    case WriteFinished(pid, f) =>
+      writesInProgress.remove(pid, f)
+  }
 
   override def asyncWriteMessages(messages: Seq[AtomicWrite]): Future[Seq[Try[Unit]]] = {
     def atomicWrite(atomicWrite: AtomicWrite): Future[Try[Unit]] = {
@@ -93,7 +113,9 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
       }
     }
 
-    Future.sequence(messages.map(aw => atomicWrite(aw)))
+    val write = Future.sequence(messages.map(aw => atomicWrite(aw)))
+    writesInProgress.put(messages.head.persistenceId, write)
+    write
   }
 
   override def asyncDeleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] = {
@@ -111,6 +133,12 @@ class SpannerJournal(config: Config) extends AsyncWriteJournal {
 
   override def asyncReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] = {
     log.debug("asyncReadHighestSequenceNr [{}] [{}]", persistenceId, fromSequenceNr)
-    spannerInteractions.readHighestSequenceNr(persistenceId, fromSequenceNr)
+    val pendingWrite = Option(writesInProgress.get(persistenceId)) match {
+      case Some(f) =>
+        log.debug("Write in progress for {}, deferring highest seq nr until write completed", persistenceId)
+        f
+      case None => Future.successful(Done)
+    }
+    pendingWrite.flatMap(_ => spannerInteractions.readHighestSequenceNr(persistenceId, fromSequenceNr))
   }
 }
