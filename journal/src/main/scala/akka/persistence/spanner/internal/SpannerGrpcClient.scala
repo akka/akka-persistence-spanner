@@ -24,6 +24,7 @@ import com.google.spanner.v1._
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.util.control.NoStackTrace
 import scala.util.{Failure, Success}
 
 /**
@@ -33,6 +34,10 @@ import scala.util.{Failure, Success}
 private[spanner] object SpannerGrpcClient {
   final class TransactionFailed(code: Int, message: String, details: Any)
       extends RuntimeException(s"Code $code. Message: $message. Params: $details")
+
+  final class PoolBusyException extends RuntimeException with NoStackTrace
+
+  val PoolBusyException = new PoolBusyException
 }
 
 /**
@@ -107,11 +112,14 @@ private[spanner] object SpannerGrpcClient {
       })
   }
 
-  def write(mutations: Seq[Mutation]): Future[Unit] = {
-    val sessionUuid = UUID.randomUUID()
-    val write = for {
-      session <- getSession(sessionUuid)
-      _ <- client.commit(
+  /**
+   * This doesn't do retries. See
+   * https://github.com/akka/akka-persistence-spanner/issues/18 for re-trying
+   * with the same session
+   */
+  def write(mutations: Seq[Mutation]): Future[Unit] =
+    withSession { session =>
+      client.commit(
         CommitRequest(
           session.session.name,
           Transaction.SingleUseTransaction(
@@ -120,14 +128,17 @@ private[spanner] object SpannerGrpcClient {
           mutations
         )
       )
-    } yield ()
-    // TODO don't do this if we got pool is busy
-    write.onComplete(_ => pool.tell(ReleaseSession(sessionUuid)))
-    write
-  }
+    }.map(_ => ())
 
+  /**
+   * Executes all the statements in a single BatchDML statement.
+   *
+   * @param statements to execute along with their params and param types
+   * @return Future is completed with faiure if status.code != Code.OK. In that case
+   *         the transaction won't be commited and none of the modifications will have
+   *         happened.
+   */
   def executeBatchDml(statements: List[(String, Struct, Map[String, Type])]): Future[Unit] = {
-    val sessionUuid = UUID.randomUUID()
     def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
       val s = statements.map {
         case (sql, params, types) =>
@@ -144,59 +155,73 @@ private[spanner] object SpannerGrpcClient {
       )
     }
 
-    val query = for {
-      session <- getSession(sessionUuid)
-      transaction <- client.beginTransaction(
-        BeginTransactionRequest(
-          session.session.name,
-          Some(TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite())))
+    withSession { session =>
+      for {
+        transaction <- client.beginTransaction(
+          BeginTransactionRequest(
+            session.session.name,
+            Some(TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite())))
+          )
         )
-      )
-      resultSet <- client.executeBatchDml(createBatchDmlRequest(session.session.name, transaction.id))
-      status = {
-        resultSet.status match {
-          case Some(status) if status.code != Code.OK.index =>
-            log.warning("Transaction failed with status {}", resultSet.status)
-            Future.failed(new TransactionFailed(status.code, status.message, status.details))
-          case _ => Future.successful(())
+        resultSet <- client.executeBatchDml(createBatchDmlRequest(session.session.name, transaction.id))
+        _ = {
+          resultSet.status match {
+            case Some(status) if status.code != Code.OK.index =>
+              log.warning("Transaction failed with status {}", resultSet.status)
+              Future.failed(new TransactionFailed(status.code, status.message, status.details))
+            case _ => Future.successful(())
+          }
         }
-      }
-      _ <- client.commit(CommitRequest(session.session.name, CommitRequest.Transaction.TransactionId(transaction.id)))
-    } yield {
-      status
+        _ <- client.commit(
+          CommitRequest(session.session.name, CommitRequest.Transaction.TransactionId(transaction.id))
+        )
+      } yield ()
     }
-
-    // TODO don't do this if we got pool is busy
-    query.onComplete(_ => pool.tell(ReleaseSession(sessionUuid)))
-    query.map(_ => ())
   }
 
-  def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type]): Future[ResultSet] = {
-    // TODO on timeout clean up session request
-    val sessionUuid = UUID.randomUUID()
-    val query = for {
-      session <- getSession(sessionUuid)
-      resultSet <- client.executeSql(
-        ExecuteSqlRequest(
-          session = session.session.name,
-          sql = sql,
-          params = Some(params),
-          paramTypes = paramTypes
+  /**
+   * Execute a small query. Result can not be larger than 10 MiB. Larger results
+   * should use `executeStreamingSql`
+   *
+   * Uses a single use read only transaction.
+   */
+  def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type]): Future[ResultSet] =
+    withSession(
+      session =>
+        client.executeSql(
+          ExecuteSqlRequest(
+            session = session.session.name,
+            sql = sql,
+            params = Some(params),
+            paramTypes = paramTypes
+          )
         )
-      )
-    } yield {
-      resultSet
+    )
+
+  /**
+   * TODO should we add a timeout for the function?
+   * Execute the given function with a session.
+   */
+  private def withSession[T](f: PooledSession => Future[T]): Future[T] = {
+    val sessionUuid = UUID.randomUUID()
+    val result = getSession(sessionUuid).flatMap(f)
+    result.onComplete {
+      case Success(_) =>
+        pool.tell(ReleaseSession(sessionUuid))
+      //release
+      case Failure(PoolBusyException) =>
+      // no need to release it
+      case Failure(_) =>
+        pool.tell(ReleaseSession(sessionUuid))
+      // release
     }
-    // TODO don't do this if we got pool is busy
-    query.onComplete(_ => pool.tell(ReleaseSession(sessionUuid)))
-    query
+    result
   }
 
   private def getSession(sessionUuid: UUID): Future[PooledSession] =
     pool.ask[SessionPool.Response](replyTo => GetSession(replyTo, sessionUuid)).transform {
       case Success(pt: PooledSession) => Success(pt)
-      // TODO specific exception so we can avoid releasing the session
-      case Success(PoolBusy(_)) => Failure(new RuntimeException("Unable to execute spanner query. Pool busy."))
+      case Success(PoolBusy(_)) => Failure(PoolBusyException)
       case Failure(t) => Failure(t)
     }
 }
