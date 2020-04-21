@@ -5,7 +5,7 @@ store for Google Spanner
 
 For questions please use the [discuss.akka.io](https://discuss.akka.io). Tag any new questions with `akka-persistence` and `spanner`.
 
-[![Build Status](https://travis-ci.org/akka/akka-persistence-spanner.svg?branch=master)](https://travis-ci.org/akka/akka-persistence-spanner)
+[![Build Status](https://travis-ci.com/akka/akka-persistence-spanner.svg?branch=master)](https://travis-ci.org/akka/akka-persistence-spanner)
 
 ## Project status
 
