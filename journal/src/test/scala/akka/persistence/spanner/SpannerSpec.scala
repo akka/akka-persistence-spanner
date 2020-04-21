@@ -8,10 +8,12 @@ import akka.actor.ActorSystem
 import akka.event.Logging
 import akka.grpc.GrpcClientSettings
 import akka.testkit.TestKitBase
+import com.google.auth.oauth2.GoogleCredentials
 import com.google.spanner.admin.database.v1.{CreateDatabaseRequest, DatabaseAdminClient, DropDatabaseRequest}
 import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdminClient}
 import com.google.spanner.v1.{CreateSessionRequest, DeleteSessionRequest, ExecuteSqlRequest, SpannerClient}
 import com.typesafe.config.{Config, ConfigFactory}
+import io.grpc.auth.MoreCallCredentials
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Millis, Seconds, Span}
@@ -51,17 +53,31 @@ object SpannerSpec {
     reduced.head.replaceFirst(""".*\.""", "").replaceAll("[^a-zA-Z_0-9]", "_")
   }
 
-  def config(databaseName: String): Config =
-    ConfigFactory.parseString(s"""
+  def config(databaseName: String): Config = {
+    val c = ConfigFactory.parseString(s"""
       akka.persistence.journal.plugin = "akka.persistence.spanner"
+      #instance-config
       akka.persistence.spanner {
-        database = $databaseName
+        database = ${databaseName.toLowerCase} 
+        instance = akka
+        project = akka-team
+      }
+      #instance-config
+       """)
+    if (System.getProperty("akka.spanner.real-spanner", "false").toBoolean) {
+      println("running with real spanner")
+      c
+    } else {
+      println("running against emulator")
+      c.withFallback(emulatorConfig)
+    }
+  }
 
+  val emulatorConfig = ConfigFactory.parseString("""
+      akka.persistence.spanner {
         session-pool {
-          # emulator only supports a single transaction at a time
           max-size = 1
         }
-        
         use-auth = false
       }
       akka.grpc.client.spanner-client {
@@ -69,7 +85,7 @@ object SpannerSpec {
         port = 9010
         use-tls = false
       }
-       """)
+     """)
 
   val table =
     """
@@ -108,8 +124,19 @@ trait SpannerLifecycle
 
   val log = Logging(system, classOf[SpannerSpec])
   val spannerSettings = new SpannerSettings(system.settings.config.getConfig("akka.persistence.spanner"))
-  val grpcSettings: GrpcClientSettings = GrpcClientSettings.fromConfig("spanner-client")
-
+  val grpcSettings: GrpcClientSettings = if (spannerSettings.useAuth) {
+    GrpcClientSettings
+      .fromConfig("spanner-client")
+      .withCallCredentials(
+        MoreCallCredentials.from(
+          GoogleCredentials
+            .getApplicationDefault()
+            .createScoped("https://www.googleapis.com/auth/spanner")
+        )
+      )
+  } else {
+    GrpcClientSettings.fromConfig("spanner-client")
+  }
   // maybe create these once in an extension when we have lots of tests?
   val adminClient = DatabaseAdminClient(grpcSettings)
   val spannerClient = SpannerClient(grpcSettings)

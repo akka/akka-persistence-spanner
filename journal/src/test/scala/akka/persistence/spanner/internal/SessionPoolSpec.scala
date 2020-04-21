@@ -19,6 +19,7 @@ class SessionPoolSpec extends SpannerSpec {
   val testkit = ActorTestKit("SessionPoolSpec")
   implicit val scheduler = testkit.scheduler
   implicit val timeout = Timeout(5.seconds)
+  val settings = spannerSettings
 
   class Setup {
     val pool: ActorRef[SessionPool.Command] = testkit.spawn(SessionPool(spannerClient, spannerSettings))
@@ -36,14 +37,20 @@ class SessionPoolSpec extends SpannerSpec {
     }
 
     "should not return session until one available" in new Setup {
-      pool ! GetSession(probe.ref, id1)
-      probe.expectMessageType[PooledSession].id shouldEqual id1
+      // take all the sessions
+      val ids = (1 to settings.sessionPool.maxSize) map { _ =>
+        val id = UUID.randomUUID()
+        pool ! GetSession(probe.ref, id)
+        probe.expectMessageType[PooledSession].id shouldEqual id
+        id
+      }
 
-      pool ! GetSession(probe.ref, id2)
+      // should be stashed
+      pool ! GetSession(probe.ref, id1)
       probe.expectNoMessage()
 
-      pool ! ReleaseSession(id1)
-      probe.expectMessageType[PooledSession].id shouldEqual id2
+      pool ! ReleaseSession(ids.head)
+      probe.expectMessageType[PooledSession].id shouldEqual id1
     }
 
     "handle invalid return of session" in new Setup {
@@ -53,10 +60,10 @@ class SessionPoolSpec extends SpannerSpec {
       // oopsy
       pool ! ReleaseSession(id2)
 
-      // pool still works and has the same sessions
+      // pool still works
       pool ! ReleaseSession(id1)
       pool ! GetSession(probe.ref, id2)
-      probe.expectMessageType[PooledSession].session shouldEqual session.session
+      probe.expectMessageType[PooledSession]
     }
   }
 
