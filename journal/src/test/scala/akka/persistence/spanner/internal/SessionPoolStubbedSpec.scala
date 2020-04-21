@@ -152,11 +152,12 @@ class SessionPoolStubbedSpec extends ScalaTestWithActorTestKit with Matchers wit
     "deletes sessions on shutdown" in new Setup {
       val response = probe.expectMessageType[BatchSessionCreateInvocation].response
       response.complete(Success(BatchCreateSessionsResponse(sessions)))
+      pool ! GetSession(sessionProbe.ref, id1)
+      sessionProbe.expectMessageType[PooledSession]
       testKit.stop(pool)
-      sessions.foreach { session =>
-        val request = probe.expectMessageType[DeleteSessionInvocation]
-        request.input shouldEqual DeleteSessionRequest(session.name)
-      }
+      sessions.map { _ =>
+        probe.expectMessageType[DeleteSessionInvocation].input.name
+      }.toSet shouldEqual sessions.map(_.name).toSet
     }
 
     "returns sessions in round robin order" in new Setup {
