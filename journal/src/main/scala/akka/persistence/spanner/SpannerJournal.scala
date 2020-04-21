@@ -11,7 +11,9 @@ import akka.actor.ActorSystem
 import akka.actor.typed.{ActorRef, SupervisorStrategy}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.adapter._
+import akka.actor.typed.scaladsl.LoggerOps
 import akka.annotation.InternalApi
+import akka.dispatch.ExecutionContexts
 import akka.event.Logging
 import akka.grpc.GrpcClientSettings
 import akka.persistence.journal.{AsyncWriteJournal, Tagged}
@@ -25,6 +27,7 @@ import com.google.spanner.v1.SpannerClient
 import com.typesafe.config.Config
 import io.grpc.auth.MoreCallCredentials
 
+import scala.collection.immutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
@@ -88,7 +91,7 @@ final class SpannerJournal(config: Config) extends AsyncWriteJournal {
       writesInProgress.remove(pid, f)
   }
 
-  override def asyncWriteMessages(messages: Seq[AtomicWrite]): Future[Seq[Try[Unit]]] = {
+  override def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
     def atomicWrite(atomicWrite: AtomicWrite): Future[Try[Unit]] = {
       val serialized: Try[Seq[SerializedWrite]] = Try {
         atomicWrite.payload.map { pr =>
@@ -119,7 +122,7 @@ final class SpannerJournal(config: Config) extends AsyncWriteJournal {
 
       serialized match {
         case Success(writes) =>
-          spannerInteractions.writeEvents(writes).map(_ => Success(()))(ExecutionContext.parasitic)
+          spannerInteractions.writeEvents(writes).map(_ => Success(()))(ExecutionContexts.parasitic)
         case Failure(t) => Future.successful(Failure(t))
       }
     }

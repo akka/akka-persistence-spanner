@@ -7,11 +7,12 @@ services:
 before_install:
   # using jabba for custom jdk management
   - curl -sL https://raw.githubusercontent.com/shyiko/jabba/0.11.2/install.sh | bash && . ~/.jabba/jabba.sh
+  - jabba install adopt@~1.8-0
   - jabba install adopt@~1.11-0
 
 # default script for jobs, that do not have any specified
 script:
-  - jabba use ${JDK:=adopt@~1.11-0}
+  - jabba use ${JDK:=adopt@~1.8-0}
   - java -version
   - ${PRE_CMD:=return 0} && sbt -jvm-opts .jvmopts-travis "$CMD"
 
@@ -36,6 +37,11 @@ jobs:
       - CMD=root/doc
     - env:
       - PRE_CMD="./docker/setup_emulator.sh"
+      - CMD=";test"
+      name: "Run tests (AdoptOpenJDK 8)"
+    - env:
+      - PRE_CMD="./docker/setup_emulator.sh"
+      - JDK="adopt@~1.11-0"
       - CMD=";test"
       name: "Run tests (AdoptOpenJDK 11)"
 

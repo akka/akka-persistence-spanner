@@ -7,7 +7,7 @@ package akka.persistence.spanner
 import akka.annotation.InternalApi
 import akka.persistence.spanner.SpannerSettings.SessionPoolSettings
 import com.typesafe.config.Config
-import scala.jdk.DurationConverters._
+import akka.util.JavaDurationConverters._
 
 /**
  * INTERNAL API
@@ -19,11 +19,11 @@ private[spanner] object SpannerSettings {
     // Spanner only supports 100 sessions per gRPC channel. We'd need multiple channels to support
     // more
     require(maxSize <= 100, "session-pool.max-size must be <= 100")
-    val retryCreateInterval = config.getDuration("retry-create-interval").toScala
+    val retryCreateInterval = config.getDuration("retry-create-interval").asScala
     val maxOutstandingRequests = config.getInt("max-outstanding-requests")
-    val restartMinBackoff = config.getDuration("restart-min-backoff").toScala
-    val restartMaxBackoff = config.getDuration("restart-max-backoff").toScala
-    val keepAliveInterval = config.getDuration("keep-alive-interval").toScala
+    val restartMinBackoff = config.getDuration("restart-min-backoff").asScala
+    val restartMaxBackoff = config.getDuration("restart-max-backoff").asScala
+    val keepAliveInterval = config.getDuration("keep-alive-interval").asScala
   }
 }
 

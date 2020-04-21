@@ -7,6 +7,7 @@ import java.util.UUID
 
 import akka.actor.typed.scaladsl.{AbstractBehavior, ActorContext, Behaviors, StashBuffer, TimerScheduler}
 import akka.actor.typed.{ActorRef, Behavior, PostStop, PreRestart, Signal}
+import akka.actor.typed.scaladsl.LoggerOps
 import akka.util.PrettyDuration._
 import akka.annotation.InternalApi
 import akka.persistence.spanner.SpannerSettings
@@ -158,7 +159,7 @@ private[spanner] final class SessionPool(
 
       if (toKeepAlive.nonEmpty) {
         if (log.isInfoEnabled) {
-          log.info(
+          log.infoN(
             "The following sessions haven't been used in the last {}. Sending keep alive. {}",
             settings.keepAliveInterval.pretty,
             toKeepAlive
