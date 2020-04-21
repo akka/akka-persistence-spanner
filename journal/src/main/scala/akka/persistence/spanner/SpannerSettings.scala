@@ -44,4 +44,5 @@ private[spanner] final class SpannerSettings(config: Config) {
   val grpcClient = config.getString("grpc-client")
 
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))
+  val sessionAcquisitionTimeout = config.getDuration("session-acquisition-timeout").asScala
 }

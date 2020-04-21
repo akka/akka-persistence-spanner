@@ -17,7 +17,6 @@ script:
 
 jobs:
   include:
-# TODO create whitesource project
 #    - stage: whitesource
 #      script: sbt whitesourceCheckPolicies whitesourceUpdate
 

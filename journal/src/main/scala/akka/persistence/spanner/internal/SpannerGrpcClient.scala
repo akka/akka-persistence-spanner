@@ -5,12 +5,14 @@
 package akka.persistence.spanner.internal
 
 import java.util.UUID
+import java.util.concurrent.Executors
 
 import akka.NotUsed
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.adapter._
 import akka.actor.typed.{ActorRef, ActorSystem}
 import akka.annotation.InternalApi
+import akka.dispatch.ExecutionContexts
 import akka.event.Logging
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
@@ -42,8 +44,6 @@ private[spanner] object SpannerGrpcClient {
 
 /**
  * A thin wrapper around the gRPC client to expose only what the plugin needs.
- *
- * TODO handle all status codes https://github.com/akka/akka-persistence-spanner/issues/14
  */
 @InternalApi private[spanner] final class SpannerGrpcClient(
     client: SpannerClient,
@@ -55,8 +55,6 @@ private[spanner] object SpannerGrpcClient {
 
   private implicit val _system = system
   private implicit val ec = system.executionContext
-  // TODO config
-  private implicit val timeout = Timeout(5.seconds)
 
   private val log = Logging(system.toClassic, classOf[SpannerGrpcClient])
 
@@ -199,7 +197,6 @@ private[spanner] object SpannerGrpcClient {
     )
 
   /**
-   * TODO should we add a timeout for the function?
    * Execute the given function with a session.
    */
   private def withSession[T](f: PooledSession => Future[T]): Future[T] = {
@@ -214,14 +211,18 @@ private[spanner] object SpannerGrpcClient {
       case Failure(_) =>
         pool.tell(ReleaseSession(sessionUuid))
       // release
-    }
+    }((ExecutionContexts.parasitic))
     result
   }
 
-  private def getSession(sessionUuid: UUID): Future[PooledSession] =
-    pool.ask[SessionPool.Response](replyTo => GetSession(replyTo, sessionUuid)).transform {
-      case Success(pt: PooledSession) => Success(pt)
-      case Success(PoolBusy(_)) => Failure(PoolBusyException)
-      case Failure(t) => Failure(t)
-    }
+  private def getSession(sessionUuid: UUID): Future[PooledSession] = {
+    implicit val timeout = Timeout(settings.sessionAcquisitionTimeout)
+    pool
+      .ask[SessionPool.Response](replyTo => GetSession(replyTo, sessionUuid))
+      .transform {
+        case Success(pt: PooledSession) => Success(pt)
+        case Success(PoolBusy(_)) => Failure(PoolBusyException)
+        case Failure(t) => Failure(t)
+      }(ExecutionContexts.parasitic)
+  }
 }
