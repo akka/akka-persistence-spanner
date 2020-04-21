@@ -14,6 +14,7 @@ import akka.persistence.spanner.SpannerSettings.SessionPoolSettings
 import akka.persistence.spanner.internal.SessionPool._
 import com.google.spanner.v1._
 
+import scala.collection.mutable
 import scala.concurrent.duration.{Duration, FiniteDuration}
 import scala.util.{Failure, Success}
 
@@ -44,6 +45,8 @@ private[spanner] object SessionPool {
   }
   final case class PooledSession(session: Session, id: UUID) extends Response
   final case class PoolBusy(id: UUID) extends Response
+
+  private final case class AvailableSession(session: Session, lastUsed: Long)
 
   def apply(client: SpannerClient, settings: SpannerSettings): Behavior[SessionPool.Command] =
     Behaviors.withStash[Command](settings.sessionPool.maxOutstandingRequests) { stash =>
@@ -111,23 +114,23 @@ private[spanner] final class SessionPool(
 ) extends AbstractBehavior[SessionPool.Command](ctx) {
   private val keepAliveInMillis = settings.keepAliveInterval.toMillis
   private val log = ctx.log
-  private var availableSessions: List[(Session, Long)] = initialSessions.map((_, System.currentTimeMillis()))
+  private var availableSessions: mutable.Queue[AvailableSession] =
+    mutable.Queue(initialSessions.map(AvailableSession(_, System.currentTimeMillis())): _*)
   private var inUseSessions = Map.empty[UUID, Session]
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
       log.info("GetSession from {} in-use {} available{}", replyTo, inUseSessions, availableSessions)
-      availableSessions match {
-        case x :: xs =>
-          replyTo ! PooledSession(x._1, id)
-          availableSessions = xs
-          inUseSessions += (id -> x._1)
-        case Nil =>
-          if (stash.isFull) {
-            replyTo ! PoolBusy(id)
-          } else {
-            stash.stash(gt)
-          }
+      if (availableSessions.nonEmpty) {
+        val next = availableSessions.dequeue()
+        replyTo ! PooledSession(next.session, id)
+        inUseSessions += (id -> next.session)
+      } else {
+        if (stash.isFull) {
+          replyTo ! PoolBusy(id)
+        } else {
+          stash.stash(gt)
+        }
       }
       this
     case ReleaseSession(id) =>
@@ -135,7 +138,7 @@ private[spanner] final class SessionPool(
       if (inUseSessions.contains(id)) {
         val session = inUseSessions(id)
         inUseSessions -= id
-        availableSessions = (session, System.currentTimeMillis()) :: availableSessions
+        availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
         stash.unstash(this, 1, identity)
       } else {
         log.error(
@@ -149,18 +152,19 @@ private[spanner] final class SessionPool(
     case KeepAlive =>
       val currentTime = System.currentTimeMillis()
       val toKeepAlive = availableSessions.collect {
-        case (session, lastUse) if (currentTime - lastUse) > keepAliveInMillis =>
+        case AvailableSession(session, lastUse) if (currentTime - lastUse) > keepAliveInMillis =>
           session
       }
-      if (toKeepAlive.nonEmpty && log.isInfoEnabled) {
-        log.info(
-          "The following sessions haven't been used in the last {}. Sending keep alive. {}",
-          settings.keepAliveInterval.pretty,
-          toKeepAlive
-        )
-      }
+
       if (toKeepAlive.nonEmpty) {
-        availableSessions = availableSessions.filterNot(s => toKeepAlive.contains(s._1))
+        if (log.isInfoEnabled) {
+          log.info(
+            "The following sessions haven't been used in the last {}. Sending keep alive. {}",
+            settings.keepAliveInterval.pretty,
+            toKeepAlive
+          )
+        }
+        availableSessions = availableSessions.filterNot(s => toKeepAlive.contains(s.session))
         toKeepAlive.foreach { session =>
           val id = UUID.randomUUID()
           inUseSessions += (id -> session)
@@ -173,7 +177,7 @@ private[spanner] final class SessionPool(
           }
         }
       }
-      Behaviors.same
+      this
     case other =>
       log.error("Unexpected message in active state {}", other)
       this
@@ -189,7 +193,7 @@ private[spanner] final class SessionPool(
   }
 
   private def cleanupOldSessions(): Unit =
-    (availableSessions.map(_._1) ++ inUseSessions.values).foreach { session =>
+    (availableSessions.map(_.session) ++ inUseSessions.values).foreach { session =>
       client.deleteSession(DeleteSessionRequest(session.name))
     }
 }

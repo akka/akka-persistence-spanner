@@ -9,7 +9,7 @@ import java.util.UUID
 import akka.actor.testkit.typed.TestException
 import akka.actor.testkit.typed.scaladsl.{ScalaTestWithActorTestKit, TestProbe}
 import akka.persistence.spanner.SpannerSettings
-import akka.persistence.spanner.internal.SessionPool.{GetSession, PoolBusy, PooledSession, Response}
+import akka.persistence.spanner.internal.SessionPool.{GetSession, PoolBusy, PooledSession, ReleaseSession, Response}
 import akka.persistence.spanner.internal.SessionPoolStubbedSpec.{
   BatchSessionCreateInvocation,
   DeleteSessionInvocation,
@@ -157,6 +157,21 @@ class SessionPoolStubbedSpec extends ScalaTestWithActorTestKit with Matchers wit
         val request = probe.expectMessageType[DeleteSessionInvocation]
         request.input shouldEqual DeleteSessionRequest(session.name)
       }
+    }
+
+    "returns sessions in round robin order" in new Setup {
+      expectBatchCreate()
+      pool ! GetSession(sessionProbe.ref, id1)
+      sessionProbe.expectMessageType[PooledSession].session shouldEqual sessions(0)
+      pool ! ReleaseSession(id1)
+
+      pool ! GetSession(sessionProbe.ref, id2)
+      sessionProbe.expectMessageType[PooledSession].session shouldEqual sessions(1)
+      pool ! ReleaseSession(id2)
+
+      pool ! GetSession(sessionProbe.ref, id3)
+      sessionProbe.expectMessageType[PooledSession].session shouldEqual sessions(0)
+      pool ! ReleaseSession(id3)
     }
 
     "keeps alive un-used sessions" in new Setup {
