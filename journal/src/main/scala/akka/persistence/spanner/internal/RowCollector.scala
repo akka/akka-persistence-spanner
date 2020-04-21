@@ -58,14 +58,14 @@ import com.google.spanner.v1.PartialResultSet
             case OptionVal.None =>
               val rows = currentSet.values.grouped(columnsPerRow).toSeq
               if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
-                emitMultiple(out, rows)
+                emitMultiple(out, rows.iterator)
               } else {
                 // first part of chunk or rows split across to the next set
                 incompleteChunked = currentSet.chunkedValue
                 incompleteRow = OptionVal.Some(rows.last)
                 val initial = rows.init
                 if (initial.nonEmpty)
-                  emitMultiple(out, initial)
+                  emitMultiple(out, initial.iterator)
                 else
                   pull(in)
               }
@@ -77,14 +77,14 @@ import com.google.spanner.v1.PartialResultSet
                 val rows = combined.grouped(columnsPerRow).toSeq
                 if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
                   incompleteRow = OptionVal.None
-                  emitMultiple(out, rows)
+                  emitMultiple(out, rows.iterator)
                 } else {
                   // last row incomplete or chunked
                   incompleteChunked = currentSet.chunkedValue
                   incompleteRow = OptionVal.Some(rows.last)
                   val initial = rows.init
                   if (initial.nonEmpty)
-                    emitMultiple(out, initial)
+                    emitMultiple(out, initial.iterator)
                   else {
                     pull(in)
                   }
@@ -94,14 +94,14 @@ import com.google.spanner.v1.PartialResultSet
                 val rows = (incomplete ++ currentSet.values).grouped(columnsPerRow).toSeq
                 if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
                   incompleteRow = OptionVal.None
-                  emitMultiple(out, rows)
+                  emitMultiple(out, rows.iterator)
                 } else {
                   // last incomplete or chunked
                   incompleteChunked = currentSet.chunkedValue
                   incompleteRow = OptionVal.Some(rows.last)
                   val initial = rows.init
                   if (initial.nonEmpty)
-                    emitMultiple(out, initial)
+                    emitMultiple(out, initial.iterator)
                   else
                     pull(in)
                 }
@@ -124,7 +124,7 @@ import com.google.spanner.v1.PartialResultSet
     }
 
   def recombine(firstChunk: Seq[Value], secondChunk: Seq[Value]): Seq[Value] =
-    firstChunk.init :+ recombine(firstChunk.last, secondChunk.head) :++ secondChunk.tail
+    (firstChunk.init :+ recombine(firstChunk.last, secondChunk.head)) ++ secondChunk.tail
 
   def recombine(part1: Value, part2: Value): Value =
     Value(part1.kind match {
@@ -140,7 +140,7 @@ import com.google.spanner.v1.PartialResultSet
             Kind.ListValue(ListValue(beginning.values ++ end.values))
           case _ =>
             Kind.ListValue(
-              ListValue(beginning.values.init :+ recombine(beginning.values.last, end.values.head) :++ end.values.tail)
+              ListValue((beginning.values.init :+ recombine(beginning.values.last, end.values.head)) ++ end.values.tail)
             )
         }
 

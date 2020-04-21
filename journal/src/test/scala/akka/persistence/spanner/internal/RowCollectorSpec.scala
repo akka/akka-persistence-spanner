@@ -222,7 +222,7 @@ class RowCollectorSpec
     examples.foreach {
       case Example(name, firstPart, secondPart, expectedCombined) =>
         s"recombine partial resultsets with $name" in {
-          val futureResult = Source(Seq(firstPart, secondPart)).via(RowCollector).runWith(Sink.seq)
+          val futureResult = Source(List(firstPart, secondPart)).via(RowCollector).runWith(Sink.seq)
 
           val rows = futureResult.futureValue
           rows must ===(expectedCombined)
@@ -230,7 +230,7 @@ class RowCollectorSpec
     }
 
     "pass non chunked resultsets as is" in {
-      val resultSets = Seq(
+      val resultSets = List(
         PartialResultSet(
           metadata = Some(
             ResultSetMetadata(
@@ -252,7 +252,7 @@ class RowCollectorSpec
 
     "dechunk more than two chunked subsequent partial resultsets" in {
       val futureResult = Source(
-        Seq(
+        List(
           PartialResultSet(
             metadata = Some(
               ResultSetMetadata(
@@ -280,7 +280,7 @@ class RowCollectorSpec
 
     "pass through full rows" in {
       val futureResult = Source(
-        Seq(
+        List(
           PartialResultSet(
             metadata = Some(
               ResultSetMetadata(
@@ -301,7 +301,7 @@ class RowCollectorSpec
 
     "collect partial rows into full rows" in {
       val futureResult = Source(
-        Seq(
+        List(
           PartialResultSet(
             metadata = Some(
               ResultSetMetadata(
@@ -327,7 +327,7 @@ class RowCollectorSpec
 
     "collect multiple partial and chunked rows into full rows" in {
       val futureResult = Source(
-        Seq(
+        List(
           // looks like metadata result set could be empty, so exercise that
           PartialResultSet(
             metadata = Some(
