@@ -324,5 +324,60 @@ class RowCollectorSpec
       rows must have size (1)
       rows.head must ===(Seq(Value(Kind.StringValue("value1")), Value(Kind.StringValue("value2"))))
     }
+
+    "collect multiple partial and chunked rows into full rows" in {
+      val futureResult = Source(
+        Seq(
+          // looks like metadata result set could be empty, so exercise that
+          PartialResultSet(
+            metadata = Some(
+              ResultSetMetadata(
+                rowType = Some(
+                  StructType(
+                    fields = Seq(StructType.Field("column1"), StructType.Field("column2"), StructType.Field("column3"))
+                  )
+                )
+              )
+            )
+          ),
+          PartialResultSet(
+            chunkedValue = true,
+            values = Seq(
+              Value(Kind.StringValue("row1-va"))
+            )
+          ),
+          PartialResultSet(
+            values = Seq(
+              Value(Kind.StringValue("lue1")),
+              Value(Kind.StringValue("row1-value2")),
+              Value(Kind.StringValue("row1-value3")),
+              Value(Kind.StringValue("row2-value1")) // clean/non-chunked cut
+            )
+          ),
+          PartialResultSet(
+            chunkedValue = true,
+            values = Seq(
+              Value(Kind.StringValue("row2-value2")),
+              Value(Kind.StringValue("row2-value3")),
+              Value(Kind.StringValue("row3-value1")),
+              Value(Kind.StringValue("row3-value2")),
+              Value(Kind.StringValue("row3-va"))
+            )
+          ),
+          PartialResultSet(
+            values = Seq(
+              Value(Kind.StringValue("lue3"))
+            )
+          )
+        )
+      ).via(RowCollector).runWith(Sink.seq)
+
+      val rows = futureResult.futureValue
+      rows must ===((1 to 3).toSeq.map { row =>
+        (1 to 3).map { value =>
+          Value(Kind.StringValue(s"row$row-value$value"))
+        }
+      })
+    }
   }
 }
