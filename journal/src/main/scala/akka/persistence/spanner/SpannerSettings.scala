@@ -46,7 +46,7 @@ private[spanner] final class SpannerSettings(config: Config) {
   val deletionsTable = config.getString("deletions-table")
   val grpcClient = config.getString("grpc-client")
   val maxWriteRetries = config.getInt("max-write-retries")
-  val maxWriteRetryInterval = config.getDuration("max-write-retry-interval").asScala
+  val maxWriteRetryTimeout = config.getDuration("max-write-retry-timeout").asScala
 
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))
   val sessionAcquisitionTimeout = config.getDuration("session-acquisition-timeout").asScala

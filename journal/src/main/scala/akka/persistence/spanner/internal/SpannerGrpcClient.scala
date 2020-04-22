@@ -199,7 +199,7 @@ private[spanner] object SpannerGrpcClient {
   }
 
   private def withWriteRetries[T](f: PooledSession => Future[T]): Future[T] = withSession { session =>
-    val deadLine = settings.maxWriteRetryInterval.fromNow
+    val deadLine = settings.maxWriteRetryTimeout.fromNow
     def tryWrite(retriesLeft: Int): Future[T] =
       f(session).recoverWith {
         case ex: StatusRuntimeException
