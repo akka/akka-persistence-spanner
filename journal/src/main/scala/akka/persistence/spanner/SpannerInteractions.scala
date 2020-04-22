@@ -161,11 +161,11 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
         resultSet =>
           resultSet.rows.size match {
             case 0 =>
-              log.info("No rows for persistence id [{}], using fromSequenceNr [{}]", persistenceId, fromSequenceNr)
+              log.debug("No rows for persistence id [{}], using fromSequenceNr [{}]", persistenceId, fromSequenceNr)
               fromSequenceNr
             case 1 =>
               val sequenceNr = resultSet.rows.head.values.head.getStringValue.toLong
-              log.info("Single row. {}", sequenceNr)
+              log.debug("Single row. {}", sequenceNr)
               sequenceNr
             case _ => throw new RuntimeException("More than one row returned from a limit 1 query. " + resultSet)
           }

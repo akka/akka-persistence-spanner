@@ -72,6 +72,7 @@ lazy val journal = (project in file("journal"))
   .enablePlugins(AkkaGrpcPlugin)
   .settings(common)
   .settings(
+    name := "akka-persistence-spanner",
     libraryDependencies ++= Dependencies.journal
   )
 

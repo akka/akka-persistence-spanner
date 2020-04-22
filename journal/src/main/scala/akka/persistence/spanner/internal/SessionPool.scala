@@ -59,15 +59,17 @@ private[spanner] object SessionPool {
             settings.sessionPool.maxOutstandingRequests
           )
           def createSessions(): Unit = {
-            ctx.log.info("Creating sessions {} {}", settings.fullyQualifiedDatabase, settings.sessionPool.maxSize)
+            ctx.log.debug(
+              "Creating sessions, database [{}], pool size [{}]",
+              settings.fullyQualifiedDatabase,
+              settings.sessionPool.maxSize
+            )
             ctx.pipeToSelf(
               client.batchCreateSessions(
                 BatchCreateSessionsRequest(settings.fullyQualifiedDatabase, sessionCount = settings.sessionPool.maxSize)
               )
             ) {
-              case Success(response) =>
-                ctx.log.info("Sessions created {}", response)
-                InitialSessions(response.session.toList)
+              case Success(response) => InitialSessions(response.session.toList)
               case Failure(t) =>
                 ctx.log.warn("Session creation failed. Retrying ", t)
                 RetrySessionCreation(settings.sessionPool.retryCreateInterval)
@@ -78,6 +80,7 @@ private[spanner] object SessionPool {
 
           Behaviors.receiveMessagePartial {
             case InitialSessions(sessions) =>
+              ctx.log.debug("Sessions created [{}]", sessions)
               timers.startTimerWithFixedDelay(KeepAlive, settings.sessionPool.keepAliveInterval)
               stash.unstashAll(new SessionPool(client, sessions, ctx, timers, stash, settings.sessionPool))
             case RetrySessionCreation(when) =>
@@ -90,6 +93,7 @@ private[spanner] object SessionPool {
               Behaviors.same
             case gt @ GetSession(replyTo, id) =>
               if (stash.isFull) {
+                ctx.log.warn("Session pool request stash full, denying request for pool while starting up")
                 replyTo ! PoolBusy(id)
               } else {
                 stash.stash(gt)
@@ -121,13 +125,14 @@ private[spanner] final class SessionPool(
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
-      log.info("GetSession from {} in-use {} available{}", replyTo, inUseSessions, availableSessions)
+      log.debug("GetSession from {} in-use {} available{}", replyTo, inUseSessions, availableSessions)
       if (availableSessions.nonEmpty) {
         val next = availableSessions.dequeue()
         replyTo ! PooledSession(next.session, id)
         inUseSessions += (id -> next.session)
       } else {
         if (stash.isFull) {
+          ctx.log.warn("Session pool request stash full, denying request for pool")
           replyTo ! PoolBusy(id)
         } else {
           stash.stash(gt)
@@ -135,19 +140,21 @@ private[spanner] final class SessionPool(
       }
       this
     case ReleaseSession(id) =>
-      log.info("ReleaseSession {}", id)
+      log.debug("ReleaseSession {}", id)
       if (inUseSessions.contains(id)) {
         val session = inUseSessions(id)
         inUseSessions -= id
         availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
         stash.unstash(this, 1, identity)
       } else {
-        log.error(
-          "unknown session returned {}. This is a bug. In-use sessions {}. Available sessions {}",
-          id,
-          inUseSessions,
-          availableSessions
-        )
+        log.error("unknown session returned {}. This is a bug.", id)
+        if (log.isDebugEnabled) {
+          log.debugN(
+            "In-use sessions [{}]. Available sessions {}",
+            inUseSessions.map { case (id, session) => (id, session.name) },
+            availableSessions.map { case AvailableSession(session, lastUsed) => (session.name, lastUsed) }
+          )
+        }
         this
       }
     case KeepAlive =>
@@ -159,10 +166,10 @@ private[spanner] final class SessionPool(
 
       if (toKeepAlive.nonEmpty) {
         if (log.isInfoEnabled) {
-          log.infoN(
-            "The following sessions haven't been used in the last {}. Sending keep alive. {}",
+          log.debugN(
+            "The following sessions haven't been used in the last {}. Sending keep alive. [{}]",
             settings.keepAliveInterval.pretty,
-            toKeepAlive
+            toKeepAlive.map(_.name)
           )
         }
         availableSessions = availableSessions.filterNot(s => toKeepAlive.contains(s.session))
@@ -173,7 +180,10 @@ private[spanner] final class SessionPool(
             case Success(_) =>
               ReleaseSession(id)
             case Failure(t) =>
-              log.warn("failed to keep session alive, may be re-tried again before expires server side", t)
+              log.warn(
+                s"Failed to keep session [${session.name}] alive, may be re-tried again before expires server side",
+                t
+              )
               ReleaseSession(id)
           }
         }

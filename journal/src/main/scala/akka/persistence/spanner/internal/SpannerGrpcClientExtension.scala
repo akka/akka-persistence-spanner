@@ -39,7 +39,7 @@ private[spanner] class SpannerGrpcClientExtension(system: ActorSystem[_]) extend
                 .fromConfig(settings.grpcClient)
                 .withCallCredentials(
                   MoreCallCredentials.from(
-                    GoogleCredentials.getApplicationDefault
+                    GoogleCredentials.getApplicationDefault.createScoped("https://www.googleapis.com/auth/spanner.data")
                   )
                 )
             )
