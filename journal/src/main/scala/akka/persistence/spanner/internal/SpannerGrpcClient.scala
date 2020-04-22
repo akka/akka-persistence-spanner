@@ -5,6 +5,7 @@
 package akka.persistence.spanner.internal
 
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicLong
 
 import akka.Done
 import akka.actor.typed.scaladsl.AskPattern._
@@ -57,6 +58,10 @@ private[spanner] object SpannerGrpcClient {
 
   private val log = LoggerFactory.getLogger(classOf[SpannerGrpcClient])
 
+  private val sessionIdCounter = new AtomicLong(0)
+
+  private def nextSessionId(): Long = sessionIdCounter.incrementAndGet()
+
   private val pool = system.systemActorOf(
     Behaviors
       .supervise(SessionPool.apply(client, settings))
@@ -79,7 +84,7 @@ private[spanner] object SpannerGrpcClient {
       params: Struct,
       paramTypes: Map[String, Type]
   ): Source[Seq[Value], Future[Done]] = {
-    val sessionId = UUID.randomUUID()
+    val sessionId = nextSessionId()
     val result = getSession(sessionId).map { session =>
       log.debug("streamingQuery, session id [{}]", session.id)
       client
@@ -189,7 +194,7 @@ private[spanner] object SpannerGrpcClient {
    * Execute the given function with a session.
    */
   def withSession[T](f: PooledSession => Future[T]): Future[T] = {
-    val sessionUuid = UUID.randomUUID()
+    val sessionUuid = nextSessionId()
     val result = getSession(sessionUuid)
       .flatMap(f)
 
@@ -225,7 +230,7 @@ private[spanner] object SpannerGrpcClient {
     tryWrite(settings.maxWriteRetries)
   }
 
-  protected def getSession(sessionUuid: UUID): Future[PooledSession] = {
+  protected def getSession(sessionUuid: Long): Future[PooledSession] = {
     implicit val timeout = Timeout(settings.sessionAcquisitionTimeout)
     pool
       .ask[SessionPool.Response](replyTo => GetSession(replyTo, sessionUuid))

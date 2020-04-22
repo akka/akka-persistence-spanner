@@ -78,10 +78,10 @@ class SessionPoolStubbedSpec extends ScalaTestWithActorTestKit with Matchers wit
     val pool = testKit.spawn(SessionPool(stub, baseSettings))
     val sessions = List(Session("s1"), Session("s2"))
     val sessionProbe = testKit.createTestProbe[Response]()
-    val id1 = UUID.randomUUID()
-    val id2 = UUID.randomUUID()
-    val id3 = UUID.randomUUID()
-    val id4 = UUID.randomUUID()
+    val id1 = 1L
+    val id2 = 2L
+    val id3 = 3L
+    val id4 = 4L
 
     def expectBatchCreate() = {
       val response = probe.expectMessageType[BatchSessionCreateInvocation].response
@@ -185,7 +185,7 @@ class SessionPoolStubbedSpec extends ScalaTestWithActorTestKit with Matchers wit
       Set(keepAliveRequest1.input.session, keepAliveRequest2.input.session) shouldEqual sessions.map(_.name).toSet
     }
 
-    "sessions should not be available during keep alive" in new Setup {
+    "not provide a session that is waiting for keep alive to complete" in new Setup {
       expectBatchCreate()
       val keepAliveRequest1 = probe.expectMessageType[ExecuteSqlInvocation]
       val keepAliveRequest2 = probe.expectMessageType[ExecuteSqlInvocation]

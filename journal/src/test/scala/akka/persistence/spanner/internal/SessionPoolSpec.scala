@@ -24,8 +24,8 @@ class SessionPoolSpec extends SpannerSpec {
   class Setup {
     val pool: ActorRef[SessionPool.Command] = testkit.spawn(SessionPool(spannerClient, spannerSettings))
     val probe = testkit.createTestProbe[Response]()
-    val id1 = UUID.randomUUID()
-    val id2 = UUID.randomUUID()
+    val id1 = 1L
+    val id2 = 2L
   }
 
   "A session pool" should {
@@ -38,11 +38,10 @@ class SessionPoolSpec extends SpannerSpec {
 
     "should not return session until one available" in new Setup {
       // take all the sessions
-      val ids = (1 to settings.sessionPool.maxSize) map { _ =>
-        val id = UUID.randomUUID()
-        pool ! GetSession(probe.ref, id)
-        probe.expectMessageType[PooledSession].id shouldEqual id
-        id
+      val ids = (1 to settings.sessionPool.maxSize) map { n =>
+        pool ! GetSession(probe.ref, n)
+        probe.expectMessageType[PooledSession].id shouldEqual n
+        n
       }
 
       // should be stashed

@@ -34,18 +34,21 @@ import scala.util.{Failure, Success}
 @InternalApi
 private[spanner] object SessionPool {
   sealed trait Command
-  final case class GetSession(replyTo: ActorRef[Response], id: UUID) extends Command
-  final case class ReleaseSession(id: UUID) extends Command
+  final case class GetSession(replyTo: ActorRef[Response], id: Long) extends Command
+  final case class ReleaseSession(id: Long) extends Command
 
   private final case class InitialSessions(sessions: List[Session]) extends Command
   private final case class RetrySessionCreation(in: FiniteDuration) extends Command
   private case object KeepAlive extends Command
 
   sealed trait Response {
-    val id: UUID
+    val id: Long
   }
-  final case class PooledSession(session: Session, id: UUID) extends Response
-  final case class PoolBusy(id: UUID) extends Response
+  final case class PooledSession(session: Session, id: Long) extends Response
+  final case class PoolBusy(id: Long) extends Response
+
+  private final case class ReAddAfterKeepAlive(session: Session) extends Command
+  private final case class ThrowAwayAfterKeepAliveFail(session: Session, cause: Throwable) extends Command
 
   private final case class AvailableSession(session: Session, lastUsed: Long)
 
@@ -121,7 +124,8 @@ private[spanner] final class SessionPool(
   private val log = ctx.log
   private var availableSessions: mutable.Queue[AvailableSession] =
     mutable.Queue(initialSessions.map(AvailableSession(_, System.currentTimeMillis())): _*)
-  private var inUseSessions = Map.empty[UUID, Session]
+  private var inUseSessions = Map.empty[Long, Session]
+  private var waitingForKeepAlive = Set.empty[Session]
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
@@ -180,22 +184,31 @@ private[spanner] final class SessionPool(
           )
         }
         availableSessions = availableSessions.filterNot(s => toKeepAlive.contains(s.session))
+
         toKeepAlive.foreach { session =>
-          val id = UUID.randomUUID()
-          inUseSessions += (id -> session)
           ctx.pipeToSelf(client.executeSql(ExecuteSqlRequest(session.name, sql = "SELECT 1"))) {
-            case Success(_) =>
-              ReleaseSession(id)
-            case Failure(t) =>
-              log.warn(
-                s"Failed to keep session [${session.name}] alive, may be re-tried again before expires server side",
-                t
-              )
-              ReleaseSession(id)
+            case Success(_) => ReAddAfterKeepAlive(session)
+            case Failure(t) => ThrowAwayAfterKeepAliveFail(session, t)
           }
         }
       }
       this
+
+    case ReAddAfterKeepAlive(session) =>
+      availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
+      stash.unstash(this, 1, identity)
+      this
+
+    case ThrowAwayAfterKeepAliveFail(session, cause) =>
+      log.warn(
+        s"Failed to keep session [${session.name}] alive, may be re-tried again before expires server side",
+        cause
+      )
+      // FIXME is this really the right thing to do?
+      availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
+      stash.unstash(this, 1, identity)
+      this
+
     case other =>
       log.error("Unexpected message in active state {}", other)
       this
