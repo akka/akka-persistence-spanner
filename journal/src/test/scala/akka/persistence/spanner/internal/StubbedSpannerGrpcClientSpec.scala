@@ -38,9 +38,9 @@ class StubbedSpannerGrpcClientSpec extends ScalaTestWithActorTestKit with Matche
         }
       }
       val client = new SpannerGrpcClient(
+        "retry-write",
         fakeClient,
         system,
-        system.systemActorOf(SessionPool(fakeClient, settings), "pool-1"),
         settings
       );
 
@@ -80,9 +80,9 @@ class StubbedSpannerGrpcClientSpec extends ScalaTestWithActorTestKit with Matche
         }
       }
       val client = new SpannerGrpcClient(
+        "retry-batch-dml",
         fakeClient,
         system,
-        system.systemActorOf(SessionPool(fakeClient, settings), "pool-2"),
         settings
       );
 
