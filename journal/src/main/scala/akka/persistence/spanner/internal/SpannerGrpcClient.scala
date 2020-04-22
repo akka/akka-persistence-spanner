@@ -9,20 +9,19 @@ import java.util.UUID
 import akka.Done
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.scaladsl.adapter._
 import akka.actor.typed.{ActorSystem, SupervisorStrategy}
 import akka.annotation.InternalApi
 import akka.dispatch.ExecutionContexts
-import akka.event.Logging
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
 import akka.stream.scaladsl.Source
-import akka.util.Timeout
+import akka.util.{ConstantFun, Timeout}
 import com.google.protobuf.ByteString
 import com.google.protobuf.struct.{Struct, Value}
 import com.google.rpc.Code
 import com.google.spanner.v1.CommitRequest.Transaction
 import com.google.spanner.v1._
+import io.grpc.StatusRuntimeException
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
@@ -95,22 +94,29 @@ private[spanner] object SpannerGrpcClient {
   }
 
   /**
-   * This doesn't do retries. See
-   * https://github.com/akka/akka-persistence-spanner/issues/18 for re-trying
-   * with the same session
+   * Executes a write with retries
    */
   def write(mutations: Seq[Mutation]): Future[Unit] =
     withSession { session =>
-      client.commit(
-        CommitRequest(
-          session.session.name,
-          Transaction.SingleUseTransaction(
-            TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite()))
-          ),
-          mutations
-        )
-      )
-    }.map(_ => ())
+      def tryWrite(retriesLeft: Int): Future[CommitResponse] =
+        client
+          .commit(
+            CommitRequest(
+              session.session.name,
+              Transaction.SingleUseTransaction(
+                TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite()))
+              ),
+              mutations
+            )
+          )
+          .recoverWith {
+            case ex: StatusRuntimeException if ex.getStatus == io.grpc.Status.ABORTED && retriesLeft > 0 =>
+              log.debug("Write failed for [{}], retrying", session.id)
+              tryWrite(retriesLeft - 1)
+          }
+
+      tryWrite(settings.writeRetries).map(ConstantFun.scalaAnyToUnit)(ExecutionContexts.parasitic)
+    }
 
   /**
    * Executes all the statements in a single BatchDML statement.
@@ -201,7 +207,7 @@ private[spanner] object SpannerGrpcClient {
     result
   }
 
-  private def getSession(sessionUuid: UUID): Future[PooledSession] = {
+  protected def getSession(sessionUuid: UUID): Future[PooledSession] = {
     implicit val timeout = Timeout(settings.sessionAcquisitionTimeout)
     pool
       .ask[SessionPool.Response](replyTo => GetSession(replyTo, sessionUuid))

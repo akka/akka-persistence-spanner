@@ -43,6 +43,7 @@ private[spanner] final class SpannerSettings(config: Config) {
   val table = config.getString("table")
   val deletionsTable = config.getString("deletions-table")
   val grpcClient = config.getString("grpc-client")
+  val writeRetries = 3 // FIXME from config
 
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))
   val sessionAcquisitionTimeout = config.getDuration("session-acquisition-timeout").asScala
