@@ -7,16 +7,24 @@ package akka.persistence.spanner
 import akka.actor.ActorSystem
 import akka.event.Logging
 import akka.grpc.GrpcClientSettings
-import akka.testkit.TestKitBase
+import akka.testkit.{TestKit, TestKitBase}
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.protobuf.struct.ListValue
 import com.google.protobuf.struct.Value.Kind
-import com.google.spanner.admin.database.v1.{CreateDatabaseRequest, DatabaseAdminClient, DropDatabaseRequest}
+import com.google.spanner.admin.database.v1.{
+  CreateDatabaseRequest,
+  DatabaseAdminClient,
+  DropDatabaseRequest,
+  GetDatabaseRequest
+}
 import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdminClient}
 import com.google.spanner.v1.{CreateSessionRequest, DeleteSessionRequest, ExecuteSqlRequest, SpannerClient}
 import com.typesafe.config.{Config, ConfigFactory}
+import io.grpc.Status.Code
+import io.grpc.{Status, StatusRuntimeException}
 import io.grpc.auth.MoreCallCredentials
 import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.exceptions.TestFailedException
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
@@ -60,6 +68,7 @@ object SpannerSpec {
   def config(databaseName: String): Config = {
     val c = ConfigFactory.parseString(s"""
       akka.persistence.journal.plugin = "akka.persistence.spanner"
+      akka.test.timefactor = 2
       #instance-config
       akka.persistence.spanner {
         database = ${databaseName.toLowerCase} 
@@ -135,6 +144,9 @@ trait SpannerLifecycle
         MoreCallCredentials.from(
           GoogleCredentials
             .getApplicationDefault()
+            .createScoped(
+              "https://www.googleapis.com/auth/spanner.admin"
+            )
         )
       )
   } else {
@@ -149,21 +161,54 @@ trait SpannerLifecycle
 
   override protected def beforeAll(): Unit = {
     super.beforeAll()
+    def databaseNotFound(t: Throwable): Boolean =
+      t match {
+        case s: StatusRuntimeException =>
+          s.getStatus.getCode == Code.NOT_FOUND
+        case _ => false
+      }
+    // create db
     SpannerSpec.ensureInstanceCreated(instanceClient, spannerSettings)
-    // make sure we don't leak db contents from previous run
-    // adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
-    Await.ready(
+    try {
+      val db = adminClient.getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase)).futureValue
+      if (db.state.isReady) {
+        // there is a db already, drop it to make sure we don't leak db contents from previous run
+        log.info("Dropping pre-existing database {}", spannerSettings.fullyQualifiedDatabase)
+        adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
+        awaitAssert(
+          {
+            val fail = adminClient
+              .getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
+              .failed
+              .futureValue
+            databaseNotFound(fail) should ===(true)
+          },
+          20.seconds
+        )
+      }
+    } catch {
+      case te: TestFailedException if te.cause.exists(databaseNotFound) =>
+      // ok, no pre-existing database
+    }
+
+    log.info("Creating database {}", spannerSettings.database)
+    adminClient
+      .createDatabase(
+        CreateDatabaseRequest(
+          parent = spannerSettings.parent,
+          s"CREATE DATABASE ${spannerSettings.database}",
+          List(SpannerSpec.table, SpannerSpec.deleteMetadataTable)
+        )
+      )
+    // wait for db to be ready before testing
+    awaitAssert({
       adminClient
-        .createDatabase(
-          CreateDatabaseRequest(
-            parent = spannerSettings.parent,
-            s"CREATE DATABASE ${spannerSettings.database}",
-            List(SpannerSpec.table, SpannerSpec.deleteMetadataTable)
-          )
-        ),
-      20.seconds
-    )
-    log.info("Database created {}", spannerSettings.database)
+        .getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
+        .futureValue
+        .state
+        .isReady should ===(true)
+    }, 20.seconds)
+    log.info("Database ready {}", spannerSettings.database)
   }
 
   override protected def withFixture(test: NoArgTest): Outcome = {
@@ -216,6 +261,8 @@ trait SpannerLifecycle
 
   override protected def afterAll(): Unit = {
     cleanup()
+    // not sure why this doesn't get called by super.afterAll
+    TestKit.shutdownActorSystem(system)
     super.afterAll()
   }
 }

@@ -12,8 +12,9 @@ object SpannerJournalPerfSpec {
     .parseString(if (SpannerSpec.realSpanner) {
       // note that it needs a service account or else access is seriously throttled
       """
-        akka.persistence.spanner.session-pool.max-size = 100
-        akka.persistence.spanner.session-pool.max-outstanding-requests = 1000
+        akka.persistence.spanner.session-acquisition-timeout = 10s
+        akka.persistence.spanner.session-pool.max-size = 10
+        akka.persistence.spanner.session-pool.max-outstanding-requests = 10000
       """
     } else {
       // note that the spanner emulator is limited to a single transaction at a time
@@ -30,10 +31,9 @@ object SpannerJournalPerfSpec {
 class SpannerJournalPerfSpec extends JournalPerfSpec(SpannerJournalPerfSpec.config) with SpannerLifecycle {
   override def databaseName: String = SpannerJournalPerfSpec.dbName
 
-  override def eventsCount: Int =
-    if (SpannerSpec.realSpanner) 10000
-    // tune event count down since emulator only does one transaction at a time
-    else 1000
+  // tune event count down since emulator only does one transaction at a time and
+  // bombarding real spanner does also not work great
+  override def eventsCount: Int = 1000
 
   override def awaitDurationMillis: Long = 60.seconds.toMillis
 

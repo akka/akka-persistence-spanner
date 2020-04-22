@@ -147,12 +147,14 @@ private[spanner] final class SessionPool(
         availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
         stash.unstash(this, 1, identity)
       } else {
-        log.error(
-          "unknown session returned {}. This is a bug. In-use sessions [{}]. Available sessions {}",
-          id,
-          inUseSessions.map { case (id, session) => (id, session.name) },
-          availableSessions.map { case AvailableSession(session, lastUsed) => (session.name, lastUsed) }
-        )
+        log.error("unknown session returned {}. This is a bug.", id)
+        if (log.isDebugEnabled) {
+          log.debugN(
+            "In-use sessions [{}]. Available sessions {}",
+            inUseSessions.map { case (id, session) => (id, session.name) },
+            availableSessions.map { case AvailableSession(session, lastUsed) => (session.name, lastUsed) }
+          )
+        }
         this
       }
     case KeepAlive =>
@@ -179,7 +181,7 @@ private[spanner] final class SessionPool(
               ReleaseSession(id)
             case Failure(t) =>
               log.warn(
-                s"Failed to keep session [s{session.name}] alive, may be re-tried again before expires server side",
+                s"Failed to keep session [${session.name}] alive, may be re-tried again before expires server side",
                 t
               )
               ReleaseSession(id)

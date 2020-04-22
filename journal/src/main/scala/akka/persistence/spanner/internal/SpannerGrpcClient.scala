@@ -23,6 +23,7 @@ import com.google.protobuf.struct.{Struct, Value}
 import com.google.rpc.Code
 import com.google.spanner.v1.CommitRequest.Transaction
 import com.google.spanner.v1._
+import org.slf4j.LoggerFactory
 
 import scala.concurrent.Future
 import scala.concurrent.duration._
@@ -56,7 +57,7 @@ private[spanner] object SpannerGrpcClient {
   private implicit val _system = system
   private implicit val ec = system.executionContext
 
-  private val log = Logging(system.toClassic, classOf[SpannerGrpcClient])
+  private val log = LoggerFactory.getLogger(classOf[SpannerGrpcClient])
 
   def streamingQuery(
       sql: String,
@@ -136,7 +137,7 @@ private[spanner] object SpannerGrpcClient {
         _ = {
           resultSet.status match {
             case Some(status) if status.code != Code.OK.index =>
-              log.warning("Transaction failed with status {}", resultSet.status)
+              log.warn("Transaction failed with status {}", resultSet.status)
               Future.failed(new TransactionFailed(status.code, status.message, status.details))
             case _ => Future.successful(())
           }
@@ -173,13 +174,15 @@ private[spanner] object SpannerGrpcClient {
   private def withSession[T](f: PooledSession => Future[T]): Future[T] = {
     val sessionUuid = UUID.randomUUID()
     val result = getSession(sessionUuid).flatMap(f)
+
     result.onComplete {
       case Success(_) =>
         pool.tell(ReleaseSession(sessionUuid))
-      //release
+      // already released
       case Failure(PoolBusyException) =>
       // no need to release it
-      case Failure(_) =>
+      case Failure(t) =>
+        log.warn("User query failed. Returning session.", t)
         pool.tell(ReleaseSession(sessionUuid))
       // release
     }((ExecutionContexts.parasitic))

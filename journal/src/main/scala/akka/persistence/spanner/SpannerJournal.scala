@@ -56,7 +56,7 @@ final class SpannerJournal(config: Config) extends AsyncWriteJournal {
           .withCallCredentials(
             MoreCallCredentials.from(
               GoogleCredentials.getApplicationDefault
-                .createScoped("https://www.googleapis.com/auth/spanner")
+                .createScoped("https://www.googleapis.com/auth/spanner.data")
             )
           )
       )
