@@ -6,10 +6,12 @@
 To activate the journal plugin, add the following line to your Akka `application.conf`:
 
 ```
-akka.persistence.journal.plugin = "akka.persistence.spanner"
+akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
 ```
 
-In addition the following will need to be set:
+Shared configuration is located under `akka.persistence.spanner.journal`.
+
+Configuration just for the journal is under `akka.persistence.spanner`. You will need to set at least:
 
 ```
 akka.persistence.spanner {
@@ -34,7 +36,7 @@ The [Spanner Emulator](https://cloud.google.com/spanner/docs/emulator).
 Set the following to connect to it:
 
 ```
-akka.persistence.journal.plugin = "akka.persistence.spanner"
+akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
   akka.persistence.spanner {
     session-pool {
       # emulator only supports a single transaction at a time

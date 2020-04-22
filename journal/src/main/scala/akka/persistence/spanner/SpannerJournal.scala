@@ -8,24 +8,17 @@ import java.util.Base64
 
 import akka.Done
 import akka.actor.ActorSystem
-import akka.actor.typed.{ActorRef, SupervisorStrategy}
-import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.adapter._
-import akka.actor.typed.scaladsl.LoggerOps
 import akka.annotation.InternalApi
 import akka.dispatch.ExecutionContexts
 import akka.event.Logging
-import akka.grpc.GrpcClientSettings
 import akka.persistence.journal.{AsyncWriteJournal, Tagged}
 import akka.persistence.spanner.SpannerInteractions.SerializedWrite
 import akka.persistence.spanner.SpannerJournal.WriteFinished
-import akka.persistence.spanner.internal.{SessionPool, SpannerGrpcClient}
+import akka.persistence.spanner.internal.SpannerGrpcClientExtension
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.serialization.{Serialization, SerializationExtension, Serializers}
-import com.google.auth.oauth2.GoogleCredentials
-import com.google.spanner.v1.SpannerClient
 import com.typesafe.config.Config
-import io.grpc.auth.MoreCallCredentials
 
 import scala.collection.immutable
 import scala.concurrent.{ExecutionContext, Future}
@@ -39,46 +32,20 @@ object SpannerJournal {
  * INTERNAL API
  */
 @InternalApi
-final class SpannerJournal(config: Config) extends AsyncWriteJournal {
+final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJournal {
   implicit val system: ActorSystem = context.system
   implicit val ec: ExecutionContext = context.dispatcher
 
   private val log = Logging(context.system, classOf[SpannerJournal])
 
+  private val sharedConfigPath = cfgPath.replaceAll("""\.journal$""", "")
   private val serialization: Serialization = SerializationExtension(context.system)
-  private val journalSettings = new SpannerSettings(config)
+  private val journalSettings = new SpannerSettings(context.system.settings.config.getConfig(sharedConfigPath))
 
-  private val grpcClient: SpannerClient =
-    if (journalSettings.useAuth) {
-      SpannerClient(
-        GrpcClientSettings
-          .fromConfig(journalSettings.grpcClient)
-          .withCallCredentials(
-            MoreCallCredentials.from(
-              GoogleCredentials.getApplicationDefault
-                .createScoped("https://www.googleapis.com/auth/spanner")
-            )
-          )
-      )
-    } else {
-      SpannerClient(GrpcClientSettings.fromConfig("spanner-client"))
-    }
-
-  private val sessionPool: ActorRef[SessionPool.Command] = context.spawn(
-    Behaviors
-      .supervise(SessionPool.apply(grpcClient, journalSettings))
-      .onFailure(
-        SupervisorStrategy.restartWithBackoff(
-          journalSettings.sessionPool.restartMinBackoff,
-          journalSettings.sessionPool.restartMaxBackoff,
-          0.1
-        )
-      ),
-    "session-pool"
-  )
+  private val grpcClient = SpannerGrpcClientExtension(system.toTyped).clientFor(sharedConfigPath)
 
   private val spannerInteractions = new SpannerInteractions(
-    new SpannerGrpcClient(grpcClient, system.toTyped, sessionPool, journalSettings),
+    grpcClient,
     journalSettings
   )
 

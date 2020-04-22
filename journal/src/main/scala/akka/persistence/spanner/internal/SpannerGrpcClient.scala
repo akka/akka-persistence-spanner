@@ -5,12 +5,12 @@
 package akka.persistence.spanner.internal
 
 import java.util.UUID
-import java.util.concurrent.Executors
 
-import akka.{Done, NotUsed}
+import akka.Done
 import akka.actor.typed.scaladsl.AskPattern._
+import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.scaladsl.adapter._
-import akka.actor.typed.{ActorRef, ActorSystem}
+import akka.actor.typed.{ActorSystem, SupervisorStrategy}
 import akka.annotation.InternalApi
 import akka.dispatch.ExecutionContexts
 import akka.event.Logging
@@ -25,7 +25,6 @@ import com.google.spanner.v1.CommitRequest.Transaction
 import com.google.spanner.v1._
 
 import scala.concurrent.Future
-import scala.concurrent.duration._
 import scala.util.control.NoStackTrace
 import scala.util.{Failure, Success}
 
@@ -46,9 +45,9 @@ private[spanner] object SpannerGrpcClient {
  * A thin wrapper around the gRPC client to expose only what the plugin needs.
  */
 @InternalApi private[spanner] final class SpannerGrpcClient(
+    name: String,
     client: SpannerClient,
     system: ActorSystem[_],
-    pool: ActorRef[SessionPool.Command],
     settings: SpannerSettings
 ) {
   import SpannerGrpcClient._
@@ -57,6 +56,19 @@ private[spanner] object SpannerGrpcClient {
   private implicit val ec = system.executionContext
 
   private val log = Logging(system.toClassic, classOf[SpannerGrpcClient])
+
+  private val pool = system.systemActorOf(
+    Behaviors
+      .supervise(SessionPool.apply(client, settings))
+      .onFailure(
+        SupervisorStrategy.restartWithBackoff(
+          settings.sessionPool.restartMinBackoff,
+          settings.sessionPool.restartMaxBackoff,
+          0.1
+        )
+      ),
+    s"$name-session-pool"
+  )
 
   def streamingQuery(
       sql: String,

@@ -7,7 +7,7 @@ package akka.persistence.spanner
 import akka.actor.ActorSystem
 import akka.event.Logging
 import akka.grpc.GrpcClientSettings
-import akka.testkit.TestKitBase
+import akka.testkit.{TestKit, TestKitBase}
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.spanner.admin.database.v1.{CreateDatabaseRequest, DatabaseAdminClient, DropDatabaseRequest}
 import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdminClient}
@@ -55,7 +55,7 @@ object SpannerSpec {
 
   def config(databaseName: String): Config = {
     val c = ConfigFactory.parseString(s"""
-      akka.persistence.journal.plugin = "akka.persistence.spanner"
+      akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
       #instance-config
       akka.persistence.spanner {
         database = ${databaseName.toLowerCase} 
@@ -197,10 +197,13 @@ trait SpannerLifecycle
     log.info("Database dropped {}", spannerSettings.database)
   }
 
-  override protected def afterAll(): Unit = {
-    cleanup()
-    super.afterAll()
-  }
+  override protected def afterAll(): Unit =
+    try {
+      cleanup()
+    } finally {
+      super.afterAll()
+      TestKit.shutdownActorSystem(system)
+    }
 }
 
 /**
