@@ -94,56 +94,48 @@ private[spanner] object SpannerGrpcClient {
   }
 
   /**
-   * Executes a write with retries
+   * Executes a write with retries if result is ABORTED
    */
   def write(mutations: Seq[Mutation]): Future[Unit] =
-    withSession { session =>
-      def tryWrite(retriesLeft: Int): Future[CommitResponse] =
-        client
-          .commit(
-            CommitRequest(
-              session.session.name,
-              Transaction.SingleUseTransaction(
-                TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite()))
-              ),
-              mutations
-            )
+    withWriteRetries { session =>
+      client
+        .commit(
+          CommitRequest(
+            session.session.name,
+            Transaction.SingleUseTransaction(
+              TransactionOptions(TransactionOptions.Mode.ReadWrite(TransactionOptions.ReadWrite()))
+            ),
+            mutations
           )
-          .recoverWith {
-            case ex: StatusRuntimeException if ex.getStatus == io.grpc.Status.ABORTED && retriesLeft > 0 =>
-              log.debug("Write failed for [{}], retrying", session.id)
-              tryWrite(retriesLeft - 1)
-          }
-
-      tryWrite(settings.writeRetries).map(ConstantFun.scalaAnyToUnit)(ExecutionContexts.parasitic)
-    }
+        )
+    }.map(ConstantFun.scalaAnyToUnit)(ExecutionContexts.parasitic)
 
   /**
-   * Executes all the statements in a single BatchDML statement.
+   * Executes all the statements in a single BatchDML statement. If query is failed with ABORTED it is retried.
    *
    * @param statements to execute along with their params and param types
-   * @return Future is completed with faiure if status.code != Code.OK. In that case
-   *         the transaction won't be commited and none of the modifications will have
+   * @return Future is completed with failure if status.code != Code.OK. In that case
+   *         the transaction won't be committed and none of the modifications will have
    *         happened.
    */
-  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])]): Future[Unit] = {
-    def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
-      val s = statements.map {
-        case (sql, params, types) =>
-          ExecuteBatchDmlRequest.Statement(
-            sql,
-            Some(params),
-            types
-          )
+  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])]): Future[Unit] =
+    withWriteRetries { session =>
+      def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
+        val s = statements.map {
+          case (sql, params, types) =>
+            ExecuteBatchDmlRequest.Statement(
+              sql,
+              Some(params),
+              types
+            )
+        }
+        ExecuteBatchDmlRequest(
+          sessionId,
+          transaction = Some(TransactionSelector(TransactionSelector.Selector.Id(transactionId))),
+          s
+        )
       }
-      ExecuteBatchDmlRequest(
-        sessionId,
-        transaction = Some(TransactionSelector(TransactionSelector.Selector.Id(transactionId))),
-        s
-      )
-    }
 
-    withSession { session =>
       for {
         transaction <- client.beginTransaction(
           BeginTransactionRequest(
@@ -165,7 +157,6 @@ private[spanner] object SpannerGrpcClient {
         )
       } yield ()
     }
-  }
 
   /**
    * Execute a small query. Result can not be larger than 10 MiB. Larger results
@@ -205,6 +196,19 @@ private[spanner] object SpannerGrpcClient {
       // release
     }((ExecutionContexts.parasitic))
     result
+  }
+
+  private def withWriteRetries[T](f: PooledSession => Future[T]): Future[T] = withSession { session =>
+    val deadLine = settings.maxWriteRetryInterval.fromNow
+    def tryWrite(retriesLeft: Int): Future[T] =
+      f(session).recoverWith {
+        case ex: StatusRuntimeException
+            if ex.getStatus == io.grpc.Status.ABORTED && retriesLeft > 0 && deadLine.hasTimeLeft() =>
+          log.debug("Write failed for [{}], retrying", session.id)
+          tryWrite(retriesLeft - 1)
+      }
+
+    tryWrite(settings.maxWriteRetries)
   }
 
   protected def getSession(sessionUuid: UUID): Future[PooledSession] = {

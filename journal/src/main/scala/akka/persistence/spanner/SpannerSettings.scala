@@ -9,6 +9,8 @@ import akka.persistence.spanner.SpannerSettings.SessionPoolSettings
 import com.typesafe.config.Config
 import akka.util.JavaDurationConverters._
 
+import scala.concurrent.duration.FiniteDuration
+
 /**
  * INTERNAL API
  */
@@ -43,7 +45,8 @@ private[spanner] final class SpannerSettings(config: Config) {
   val table = config.getString("table")
   val deletionsTable = config.getString("deletions-table")
   val grpcClient = config.getString("grpc-client")
-  val writeRetries = 3 // FIXME from config
+  val maxWriteRetries = config.getInt("max-write-retries")
+  val maxWriteRetryInterval = config.getDuration("max-write-retry-interval").asScala
 
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))
   val sessionAcquisitionTimeout = config.getDuration("session-acquisition-timeout").asScala
