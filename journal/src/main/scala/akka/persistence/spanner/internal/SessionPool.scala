@@ -125,7 +125,14 @@ private[spanner] final class SessionPool(
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
-      log.debug("GetSession from {} in-use {} available{}", replyTo, inUseSessions, availableSessions)
+      if (log.isDebugEnabled()) {
+        log.debug(
+          "GetSession from [{}], inUseSessions [{}], availableSessions [{}]",
+          replyTo,
+          inUseSessions.mkString(", "),
+          availableSessions.map(a => (a.session.name, a.lastUsed)).mkString(", ")
+        )
+      }
       if (availableSessions.nonEmpty) {
         val next = availableSessions.dequeue()
         replyTo ! PooledSession(next.session, id)
@@ -147,10 +154,10 @@ private[spanner] final class SessionPool(
         availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
         stash.unstash(this, 1, identity)
       } else {
-        log.error("unknown session returned {}. This is a bug.", id)
+        log.error("unknown session returned [{}]. This is a bug.", id)
         if (log.isDebugEnabled) {
           log.debugN(
-            "In-use sessions [{}]. Available sessions {}",
+            "In-use sessions [{}]. Available sessions [{}]",
             inUseSessions.map { case (id, session) => (id, session.name) },
             availableSessions.map { case AvailableSession(session, lastUsed) => (session.name, lastUsed) }
           )

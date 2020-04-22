@@ -11,6 +11,7 @@ import akka.annotation.InternalApi
 import akka.event.Logging
 import akka.persistence.PersistentRepr
 import akka.persistence.spanner.SpannerInteractions.SerializedWrite
+import akka.persistence.spanner.internal.SessionPool.PooledSession
 import akka.persistence.spanner.internal.SpannerGrpcClient
 import akka.serialization.Serialization
 import akka.util.ConstantFun
@@ -125,85 +126,42 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
       )
     }
 
-    spannerGrpcClient.write(mutations)
-  }
-
-  def findHighestDeletedTo(persistenceId: String): Future[Long] =
-    spannerGrpcClient
-      .executeQuery(
-        HighestDeleteSelectSql,
-        Struct(
-          Map(
-            Journal.PersistenceId._1 -> Value(StringValue(persistenceId))
-          )
-        ),
-        Map(Journal.PersistenceId)
-      )
-      .map { resultSet =>
-        if (resultSet.rows.isEmpty) 0L
-        else resultSet.rows.head.values.head.getStringValue.toLong
-      }
-
-  def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] = {
-    val maxDeletedTo: Future[Long] = findHighestDeletedTo(persistenceId)
-    val maxSequenceNr: Future[Long] = spannerGrpcClient
-      .executeQuery(
-        HighestSequenceNrSql,
-        Struct(
-          Map(
-            Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
-            Journal.SeqNr._1 -> Value(StringValue(fromSequenceNr.toString))
-          )
-        ),
-        Map(Journal.PersistenceId, Journal.SeqNr)
-      )
-      .map(
-        resultSet =>
-          resultSet.rows.size match {
-            case 0 =>
-              log.debug("No rows for persistence id [{}], using fromSequenceNr [{}]", persistenceId, fromSequenceNr)
-              fromSequenceNr
-            case 1 =>
-              val sequenceNr = resultSet.rows.head.values.head.getStringValue.toLong
-              log.debug("Single row. {}", sequenceNr)
-              sequenceNr
-            case _ => throw new RuntimeException("More than one row returned from a limit 1 query. " + resultSet)
-          }
-      )
-
-    for {
-      deletedTo <- maxDeletedTo
-      max <- maxSequenceNr
-    } yield {
-      log.debug("Max deleted to [{}] max sequence nr [{}]", deletedTo, max)
-      math.max(deletedTo, max)
+    spannerGrpcClient.withSession { session =>
+      log.debug("writeEvents, session id [{}]", session.id)
+      spannerGrpcClient.write(mutations)(session)
     }
   }
 
-  def deleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] = {
-    def params(to: Long) =
-      Struct(
-        Map(
-          "persistence_id" -> Value(StringValue(persistenceId)),
-          "sequence_nr" -> Value(StringValue(to.toString))
+  def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] =
+    spannerGrpcClient.withSession(implicit session => internalReadHighestSequenceNr(persistenceId, fromSequenceNr))
+
+  def deleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] = spannerGrpcClient.withSession {
+    implicit session =>
+      log.debug("deleteMessagesTo, session id [{}]", session.id)
+
+      def params(to: Long) =
+        Struct(
+          Map(
+            "persistence_id" -> Value(StringValue(persistenceId)),
+            "sequence_nr" -> Value(StringValue(to.toString))
+          )
         )
-      )
-    for {
-      highestDeletedTo <- findHighestDeletedTo(persistenceId) // user may have passed in a smaller value than previously deleted
-      toDeleteTo <- {
-        if (toSequenceNr == Long.MaxValue) { // special to delete all but don't set max deleted to it
-          readHighestSequenceNr(persistenceId, highestDeletedTo)
-        } else {
-          Future.successful(math.max(highestDeletedTo, toSequenceNr))
+      for {
+        highestDeletedTo <- findHighestDeletedTo(persistenceId) // user may have passed in a smaller value than previously deleted
+        toDeleteTo <- {
+          if (toSequenceNr == Long.MaxValue) { // special to delete all but don't set max deleted to it
+            internalReadHighestSequenceNr(persistenceId, highestDeletedTo)
+          } else {
+            Future.successful(math.max(highestDeletedTo, toSequenceNr))
+          }
         }
-      }
-      _ <- spannerGrpcClient.executeBatchDml(
-        List(
-          (SqlDelete, params(toDeleteTo), DeleteStatementTypes),
-          (SqlDeleteInsertToDeletions, params(toDeleteTo), DeleteStatementTypes)
+        _ <- spannerGrpcClient.executeBatchDml(
+          List(
+            (SqlDelete, params(toDeleteTo), DeleteStatementTypes),
+            (SqlDeleteInsertToDeletions, params(toDeleteTo), DeleteStatementTypes)
+          )
         )
-      )
-    } yield ()
+      } yield ()
   }
 
   def streamJournal(
@@ -249,5 +207,61 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
       )
       .runForeach(replayRow)
       .map(ConstantFun.scalaAnyToUnit)
+  }
+
+  private def findHighestDeletedTo(persistenceId: String)(
+      implicit session: PooledSession
+  ): Future[Long] =
+    spannerGrpcClient
+      .executeQuery(
+        HighestDeleteSelectSql,
+        Struct(
+          Map(
+            Journal.PersistenceId._1 -> Value(StringValue(persistenceId))
+          )
+        ),
+        Map(Journal.PersistenceId)
+      )
+      .map { resultSet =>
+        if (resultSet.rows.isEmpty) 0L
+        else resultSet.rows.head.values.head.getStringValue.toLong
+      }
+
+  private def internalReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long)(
+      implicit session: PooledSession
+  ): Future[Long] = {
+    val maxDeletedTo: Future[Long] = findHighestDeletedTo(persistenceId)
+    val maxSequenceNr: Future[Long] = spannerGrpcClient
+      .executeQuery(
+        HighestSequenceNrSql,
+        Struct(
+          Map(
+            Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
+            Journal.SeqNr._1 -> Value(StringValue(fromSequenceNr.toString))
+          )
+        ),
+        Map(Journal.PersistenceId, Journal.SeqNr)
+      )
+      .map(
+        resultSet =>
+          resultSet.rows.size match {
+            case 0 =>
+              log.debug("No rows for persistence id [{}], using fromSequenceNr [{}]", persistenceId, fromSequenceNr)
+              fromSequenceNr
+            case 1 =>
+              val sequenceNr = resultSet.rows.head.values.head.getStringValue.toLong
+              log.debug("Single row. {}", sequenceNr)
+              sequenceNr
+            case _ => throw new RuntimeException("More than one row returned from a limit 1 query. " + resultSet)
+          }
+      )
+
+    for {
+      deletedTo <- maxDeletedTo
+      max <- maxSequenceNr
+    } yield {
+      log.debug("Max deleted to [{}] max sequence nr [{}]", deletedTo, max)
+      math.max(deletedTo, max)
+    }
   }
 }

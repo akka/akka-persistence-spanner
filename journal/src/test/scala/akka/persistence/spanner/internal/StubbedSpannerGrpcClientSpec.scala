@@ -45,7 +45,7 @@ class StubbedSpannerGrpcClientSpec extends ScalaTestWithActorTestKit with Matche
       );
 
       // should not fail
-      client.write(Seq(Mutation())).futureValue
+      client.withSession(session => client.write(Seq(Mutation()))(session)).futureValue
       // should have retried
       retries.get should ===(0)
     }
@@ -88,11 +88,15 @@ class StubbedSpannerGrpcClientSpec extends ScalaTestWithActorTestKit with Matche
 
       // should not fail
       client
-        .executeBatchDml(
-          List(
-            ("PRETENDING TO BE A DML QUERY", Struct(), Map.empty),
-            ("PRETENDING TO BE ANOTHER DML QUERY", Struct(), Map.empty)
-          )
+        .withSession(
+          session =>
+            client
+              .executeBatchDml(
+                List(
+                  ("PRETENDING TO BE A DML QUERY", Struct(), Map.empty),
+                  ("PRETENDING TO BE ANOTHER DML QUERY", Struct(), Map.empty)
+                )
+              )(session)
         )
         .futureValue
       // should have retried

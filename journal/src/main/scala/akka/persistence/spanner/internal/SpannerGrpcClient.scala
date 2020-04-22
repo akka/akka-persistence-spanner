@@ -24,7 +24,7 @@ import com.google.spanner.v1._
 import io.grpc.StatusRuntimeException
 import org.slf4j.LoggerFactory
 
-import scala.concurrent.Future
+import scala.concurrent.{Future, TimeoutException}
 import scala.util.control.NoStackTrace
 import scala.util.{Failure, Success}
 
@@ -70,6 +70,10 @@ private[spanner] object SpannerGrpcClient {
     s"$name-session-pool"
   )
 
+  /**
+   * Note that this grabs its own session from the pool rather than require one as a parameter, it will also return that
+   * when the query has completed.
+   */
   def streamingQuery(
       sql: String,
       params: Struct,
@@ -77,6 +81,7 @@ private[spanner] object SpannerGrpcClient {
   ): Source[Seq[Value], Future[Done]] = {
     val sessionId = UUID.randomUUID()
     val result = getSession(sessionId).map { session =>
+      log.debug("streamingQuery, session id [{}]", session.id)
       client
         .executeStreamingSql(
           ExecuteSqlRequest(session.session.name, sql = sql, params = Some(params), paramTypes = paramTypes)
@@ -96,8 +101,10 @@ private[spanner] object SpannerGrpcClient {
   /**
    * Executes a write with retries if result is ABORTED
    */
-  def write(mutations: Seq[Mutation]): Future[Unit] =
-    withWriteRetries { session =>
+  def write(mutations: Seq[Mutation])(
+      implicit session: PooledSession
+  ): Future[Unit] =
+    withWriteRetries { () =>
       client
         .commit(
           CommitRequest(
@@ -118,8 +125,10 @@ private[spanner] object SpannerGrpcClient {
    *         the transaction won't be committed and none of the modifications will have
    *         happened.
    */
-  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])]): Future[Unit] =
-    withWriteRetries { session =>
+  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])])(
+      implicit session: PooledSession
+  ): Future[Unit] =
+    withWriteRetries { () =>
       def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
         val s = statements.map {
           case (sql, params, types) =>
@@ -164,44 +173,49 @@ private[spanner] object SpannerGrpcClient {
    *
    * Uses a single use read only transaction.
    */
-  def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type]): Future[ResultSet] =
-    withSession(
-      session =>
-        client.executeSql(
-          ExecuteSqlRequest(
-            session = session.session.name,
-            sql = sql,
-            params = Some(params),
-            paramTypes = paramTypes
-          )
-        )
+  def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type])(
+      implicit session: PooledSession
+  ): Future[ResultSet] =
+    client.executeSql(
+      ExecuteSqlRequest(
+        session = session.session.name,
+        sql = sql,
+        params = Some(params),
+        paramTypes = paramTypes
+      )
     )
 
   /**
    * Execute the given function with a session.
    */
-  private def withSession[T](f: PooledSession => Future[T]): Future[T] = {
+  def withSession[T](f: PooledSession => Future[T]): Future[T] = {
     val sessionUuid = UUID.randomUUID()
-    val result = getSession(sessionUuid).flatMap(f)
+    val result = getSession(sessionUuid)
+      .flatMap(f)
 
     result.onComplete {
       case Success(_) =>
         pool.tell(ReleaseSession(sessionUuid))
-      // already released
       case Failure(PoolBusyException) =>
-      // no need to release it
+        // no need to release it
+        log.debug("Acquiring session, pool busy.")
+      case Failure(t: TimeoutException) =>
+        // no need to release it
+        log.debug("Acquiring session timed out.", t.getMessage)
       case Failure(t) =>
-        log.warn("User query failed. Returning session.", t)
+        // release
+        log.debug("User query failed: {}. Returning session.", t.getMessage)
         pool.tell(ReleaseSession(sessionUuid))
-      // release
     }((ExecutionContexts.parasitic))
     result
   }
 
-  private def withWriteRetries[T](f: PooledSession => Future[T]): Future[T] = withSession { session =>
+  private def withWriteRetries[T](f: () => Future[T])(
+      implicit session: PooledSession
+  ): Future[T] = {
     val deadLine = settings.maxWriteRetryTimeout.fromNow
     def tryWrite(retriesLeft: Int): Future[T] =
-      f(session).recoverWith {
+      f().recoverWith {
         case ex: StatusRuntimeException
             if ex.getStatus == io.grpc.Status.ABORTED && retriesLeft > 0 && deadLine.hasTimeLeft() =>
           log.debug("Write failed for [{}], retrying", session.id)
