@@ -9,6 +9,8 @@ import akka.event.Logging
 import akka.grpc.GrpcClientSettings
 import akka.testkit.TestKitBase
 import com.google.auth.oauth2.GoogleCredentials
+import com.google.protobuf.struct.ListValue
+import com.google.protobuf.struct.Value.Kind
 import com.google.spanner.admin.database.v1.{CreateDatabaseRequest, DatabaseAdminClient, DropDatabaseRequest}
 import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdminClient}
 import com.google.spanner.v1.{CreateSessionRequest, DeleteSessionRequest, ExecuteSqlRequest, SpannerClient}
@@ -42,6 +44,8 @@ object SpannerSpec {
       }
     }
 
+  def realSpanner: Boolean = System.getProperty("akka.spanner.real-spanner", "false").toBoolean
+
   def getCallerName(clazz: Class[_]): String = {
     val s = Thread.currentThread.getStackTrace
       .map(_.getClassName)
@@ -64,7 +68,7 @@ object SpannerSpec {
       }
       #instance-config
        """)
-    if (System.getProperty("akka.spanner.real-spanner", "false").toBoolean) {
+    if (realSpanner) {
       println("running with real spanner")
       c
     } else {
@@ -131,7 +135,6 @@ trait SpannerLifecycle
         MoreCallCredentials.from(
           GoogleCredentials
             .getApplicationDefault()
-            .createScoped("https://www.googleapis.com/auth/spanner")
         )
       )
   } else {
@@ -147,7 +150,8 @@ trait SpannerLifecycle
   override protected def beforeAll(): Unit = {
     super.beforeAll()
     SpannerSpec.ensureInstanceCreated(instanceClient, spannerSettings)
-
+    // make sure we don't leak db contents from previous run
+    // adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
     Await.ready(
       adminClient
         .createDatabase(
@@ -157,7 +161,7 @@ trait SpannerLifecycle
             List(SpannerSpec.table, SpannerSpec.deleteMetadataTable)
           )
         ),
-      10.seconds
+      20.seconds
     )
     log.info("Database created {}", spannerSettings.database)
   }
@@ -187,15 +191,28 @@ trait SpannerLifecycle
         _ <- spannerClient.deleteSession(DeleteSessionRequest(session.name))
       } yield (execute.rows, deletions.rows)
       val (messageRows, deletionRows) = rows.futureValue
-      messageRows.foreach(row => log.info("row: {} ", row))
+      messageRows.foreach(row => log.info("row: {} ", reasonableStringFormatFor(row)))
       log.info("Message rows dumped.")
-      deletionRows.foreach(row => log.info("row: {} ", row))
+      deletionRows.foreach(row => log.info("row: {} ", reasonableStringFormatFor(row)))
       log.info("Deletion rows dumped.")
     }
 
     adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
     log.info("Database dropped {}", spannerSettings.database)
   }
+
+  private def reasonableStringFormatFor(row: ListValue): String =
+    row.values
+      .map(_.kind match {
+        case Kind.ListValue(list) => reasonableStringFormatFor(list)
+        case Kind.StringValue(string) => s"'$string'"
+        case Kind.BoolValue(bool) => bool.toString
+        case Kind.NumberValue(nr) => nr.toString
+        case Kind.NullValue(_) => "null"
+        case Kind.Empty => ""
+        case Kind.StructValue(_) => ???
+      })
+      .mkString("[", ", ", "]")
 
   override protected def afterAll(): Unit = {
     cleanup()

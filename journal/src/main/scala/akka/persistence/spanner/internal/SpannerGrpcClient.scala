@@ -37,7 +37,7 @@ private[spanner] object SpannerGrpcClient {
   final class TransactionFailed(code: Int, message: String, details: Any)
       extends RuntimeException(s"Code $code. Message: $message. Params: $details")
 
-  final class PoolBusyException extends RuntimeException with NoStackTrace
+  final class PoolBusyException extends RuntimeException("") with NoStackTrace
 
   val PoolBusyException = new PoolBusyException
 }
