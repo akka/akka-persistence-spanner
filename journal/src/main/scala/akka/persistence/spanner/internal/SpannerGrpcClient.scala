@@ -23,7 +23,8 @@ import com.google.rpc.Code
 import com.google.spanner.v1.CommitRequest.Transaction
 import com.google.spanner.v1._
 import io.grpc.StatusRuntimeException
-import org.slf4j.LoggerFactory
+import org.slf4j.{LoggerFactory}
+import akka.actor.typed.scaladsl.LoggerOps
 
 import scala.concurrent.{Future, TimeoutException}
 import scala.util.control.NoStackTrace
@@ -162,14 +163,25 @@ private[spanner] object SpannerGrpcClient {
           resultSet.status match {
             case Some(status) if status.code != Code.OK.index =>
               log.warn("Transaction failed with status {}", resultSet.status)
-              Future.failed(new TransactionFailed(status.code, status.message, status.details))
-            case _ => Future.successful(())
+              throw new TransactionFailed(status.code, status.message, status.details)
+            case status =>
+              if (log.isTraceEnabled())
+                log.traceN(
+                  "executeBatchDml, session: [{}] status: [{}], resultSets: [{}]",
+                  session.id,
+                  status,
+                  resultSet.resultSets
+                )
+              resultSet
           }
         }
-        _ <- client.commit(
+        commitResponse <- client.commit(
           CommitRequest(session.session.name, CommitRequest.Transaction.TransactionId(transaction.id))
         )
-      } yield ()
+      } yield {
+        log.trace("Successful commit at {}", commitResponse.commitTimestamp.map(t => (t.seconds, t.nanos)))
+        ()
+      }
     }
 
   /**
@@ -194,23 +206,24 @@ private[spanner] object SpannerGrpcClient {
    * Execute the given function with a session.
    */
   def withSession[T](f: PooledSession => Future[T]): Future[T] = {
-    val sessionUuid = nextSessionId()
-    val result = getSession(sessionUuid)
+    val sessionId = nextSessionId()
+    val result = getSession(sessionId)
       .flatMap(f)
 
     result.onComplete {
       case Success(_) =>
-        pool.tell(ReleaseSession(sessionUuid))
+        log.trace("Operation successful, releasing session [{}]", sessionId)
+        pool.tell(ReleaseSession(sessionId))
       case Failure(PoolBusyException) =>
         // no need to release it
-        log.debug("Acquiring session, pool busy.")
+        log.debug("Acquiring session, pool busy")
       case Failure(t: TimeoutException) =>
         // no need to release it
-        log.debug("Acquiring session timed out.", t.getMessage)
+        log.debug("Acquiring session timed out", t.getMessage)
       case Failure(t) =>
         // release
-        log.debug("User query failed: {}. Returning session.", t.getMessage)
-        pool.tell(ReleaseSession(sessionUuid))
+        log.debug("User query failed: {}, returning session [{}]", t.getMessage, sessionId)
+        pool.tell(ReleaseSession(sessionId))
     }((ExecutionContexts.parasitic))
     result
   }
@@ -235,7 +248,9 @@ private[spanner] object SpannerGrpcClient {
     pool
       .ask[SessionPool.Response](replyTo => GetSession(replyTo, sessionUuid))
       .transform {
-        case Success(pt: PooledSession) => Success(pt)
+        case Success(pt: PooledSession) =>
+          log.trace("Acquired session [{}]", pt.id)
+          Success(pt)
         case Success(PoolBusy(_)) => Failure(PoolBusyException)
         case Failure(t) => Failure(t)
       }(ExecutionContexts.parasitic)
