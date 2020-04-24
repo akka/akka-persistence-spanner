@@ -183,7 +183,7 @@ private[spanner] final class SessionPool(
       }
 
       if (toKeepAlive.nonEmpty) {
-        if (log.isInfoEnabled) {
+        if (log.isDebugEnabled) {
           log.debugN(
             "The following sessions haven't been used in the last {}. Sending keep alive. [{}]",
             settings.keepAliveInterval.pretty,

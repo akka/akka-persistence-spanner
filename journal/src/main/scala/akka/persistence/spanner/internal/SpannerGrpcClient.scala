@@ -206,7 +206,7 @@ private[spanner] object SpannerGrpcClient {
         log.debug("Acquiring session, pool busy.")
       case Failure(t: TimeoutException) =>
         // no need to release it
-        log.debug("Acquiring session timed out.", t.getMessage)
+        log.debug("Acquiring session timed out. Session id: " + sessionUuid, t.getMessage)
       case Failure(t) =>
         // release
         log.debug("User query failed: {}. Returning session.", t.getMessage)
