@@ -217,12 +217,14 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
     spannerGrpcClient
       .streamingQuery(
         ReplaySql,
-        params = Struct(
-          fields = Map(
-            Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
-            "from_sequence_nr" -> Value(StringValue(fromSequenceNr.toString)),
-            "to_sequence_nr" -> Value(StringValue(toSequenceNr.toString)),
-            "max" -> Value(StringValue(max.toString))
+        params = Some(
+          Struct(
+            fields = Map(
+              Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
+              "from_sequence_nr" -> Value(StringValue(fromSequenceNr.toString)),
+              "to_sequence_nr" -> Value(StringValue(toSequenceNr.toString)),
+              "max" -> Value(StringValue(max.toString))
+            )
           )
         ),
         paramTypes = Schema.ReplayTypes

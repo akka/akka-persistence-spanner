@@ -8,7 +8,13 @@ import akka.NotUsed
 import akka.actor.ExtendedActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.actor.typed.scaladsl.adapter._
-import akka.persistence.query.scaladsl.{CurrentEventsByTagQuery, EventsByTagQuery, ReadJournal}
+import akka.persistence.query.scaladsl.{
+  CurrentEventsByTagQuery,
+  CurrentPersistenceIdsQuery,
+  EventsByTagQuery,
+  PersistenceIdsQuery,
+  ReadJournal
+}
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset}
 import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension}
 import akka.persistence.spanner.{Schema, SpannerOffset, SpannerSettings}
@@ -28,7 +34,9 @@ object SpannerReadJournal {
 final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgPath: String)
     extends ReadJournal
     with CurrentEventsByTagQuery
-    with EventsByTagQuery {
+    with EventsByTagQuery
+    with CurrentPersistenceIdsQuery
+    with PersistenceIdsQuery {
   private val log = LoggerFactory.getLogger(classOf[SpannerReadJournal])
   private val sharedConfigPath = cfgPath.replaceAll("""\.query$""", "")
   private val settings = new SpannerSettings(system.settings.config.getConfig(sharedConfigPath))
@@ -39,16 +47,21 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   private val EventsByTagSql =
     s"SELECT ${Schema.Journal.Columns.mkString(",")} from ${settings.table} WHERE @tag IN UNNEST(tags) AND write_time >= @write_time ORDER BY write_time, persistence_id, sequence_nr "
 
+  private val PersistenceIdsQuery =
+    s"SELECT DISTINCT persistence_id from ${settings.table}"
+
   override def currentEventsByTag(tag: String, offset: Offset): scaladsl.Source[EventEnvelope, NotUsed] = {
     val spannerOffset = toSpannerOffset(offset)
     log.debugN("Query from {}. From offset {}", spannerOffset.commitTimestamp, offset)
     grpcClient
       .streamingQuery(
         EventsByTagSql,
-        params = Struct(
-          Map(
-            "tag" -> Value(StringValue(tag)),
-            "write_time" -> Value(StringValue(spannerOffset.commitTimestamp))
+        params = Some(
+          Struct(
+            Map(
+              "tag" -> Value(StringValue(tag)),
+              "write_time" -> Value(StringValue(spannerOffset.commitTimestamp))
+            )
           )
         ),
         paramTypes = Map(
@@ -124,5 +137,35 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
     case so: SpannerOffset => so
     case _ =>
       throw new IllegalArgumentException(s"Spanner Read Journal does not support offset type: " + offset.getClass)
+  }
+
+  override def currentPersistenceIds(): Source[String, NotUsed] = {
+    log.debug("currentPersistenceIds")
+    grpcClient
+      .streamingQuery(PersistenceIdsQuery)
+      .map { values =>
+        values.head.getStringValue
+      }
+      .mapMaterializedValue(_ => NotUsed)
+  }
+
+  override def persistenceIds(): Source[String, NotUsed] = {
+    log.debug("persistenceIds")
+    ContinuousQuery[Unit, String](
+      (),
+      (_, _) => (),
+      _ => Some(currentPersistenceIds()),
+      0,
+      settings.queryConfig.refreshInterval
+    ).statefulMapConcat[String] { () =>
+      var seenIds = Set.empty[String]
+      pid => {
+        if (seenIds.contains(pid)) Nil
+        else {
+          seenIds += pid
+          pid :: Nil
+        }
+      }
+    }
   }
 }

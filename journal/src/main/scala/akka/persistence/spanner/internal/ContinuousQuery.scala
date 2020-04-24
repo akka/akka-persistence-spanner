@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2020 Lightbend Inc. <http://www.lightbend.com>
+ */
+
 package akka.persistence.spanner.internal
 
 import akka.NotUsed
@@ -130,7 +134,7 @@ final private[spanner] class ContinuousQuery[S, T](
               next()
             }
           case OptionVal.None =>
-            if (!subStreamFinished && !sinkIn.hasBeenPulled)
+            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled)
               sinkIn.pull()
         }
       }

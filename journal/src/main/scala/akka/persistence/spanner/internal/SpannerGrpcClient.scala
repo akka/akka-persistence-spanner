@@ -80,15 +80,15 @@ private[spanner] object SpannerGrpcClient {
    */
   def streamingQuery(
       sql: String,
-      params: Struct,
-      paramTypes: Map[String, Type]
+      params: Option[Struct] = None,
+      paramTypes: Map[String, Type] = Map.empty
   ): Source[Seq[Value], Future[Done]] = {
     val sessionId = nextSessionId()
     val result: Future[Source[Seq[Value], NotUsed]] = getSession(sessionId).map { session =>
       log.debug("streamingQuery, session id [{}]", session.id)
       client
         .executeStreamingSql(
-          ExecuteSqlRequest(session.session.name, sql = sql, params = Some(params), paramTypes = paramTypes)
+          ExecuteSqlRequest(session.session.name, sql = sql, params = params, paramTypes = paramTypes)
         )
         .via(RowCollector)
     }
