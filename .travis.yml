@@ -35,12 +35,12 @@ jobs:
       - CMD=root/doc
     - env:
       - PRE_CMD="./docker/setup_emulator.sh"
-      - CMD=";test"
+      - CMD=";testOnly *EventsByTagSpec"
       name: "Run tests (AdoptOpenJDK 8)"
     - env:
       - PRE_CMD="./docker/setup_emulator.sh"
       - JDK="adopt@~1.11-0"
-      - CMD=";test"
+      - CMD=";testOnly *EventsByTagSpec"
       name: "Run tests (AdoptOpenJDK 11)"
 
     - stage: publish

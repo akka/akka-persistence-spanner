@@ -219,11 +219,12 @@ private[spanner] final class SessionPool(
     case Stats =>
       // improve this in https://github.com/akka/akka-persistence-spanner/issues/51
       log.infoN(
-        "in use {}. available {}. used since last stats: {}. Ids {}",
+        "in use {}. available {}. used since last stats: {}. Ids {}. Stash size {}",
         inUseSessions.size,
         availableSessions.size,
         uses,
-        inUseSessions.keys
+        inUseSessions.keys,
+        stash.size
       )
       uses = 0
       this
