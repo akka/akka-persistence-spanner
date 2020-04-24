@@ -100,9 +100,8 @@ object SpannerSpec {
       }
      """)
 
-  val table =
-    """
-  CREATE TABLE journal (
+  def journalTable(settings: SpannerSettings): String =
+    s"""CREATE TABLE ${settings.table} (
         persistence_id STRING(MAX) NOT NULL,
         sequence_nr INT64 NOT NULL,
         event BYTES(MAX),
@@ -112,15 +111,14 @@ object SpannerSpec {
         write_time TIMESTAMP OPTIONS (allow_commit_timestamp=true),
         writer_uuid STRING(MAX) NOT NULL,
 ) PRIMARY KEY (persistence_id, sequence_nr)
-  """
+"""
 
-  val deleteMetadataTable =
-    """
-    CREATE TABLE deletions (
-        persistence_id STRING(MAX) NOT NULL,
-        deleted_to INT64 NOT NULL,
-      ) PRIMARY KEY (persistence_id)
-  """
+  def deleteMetadataTable(settings: SpannerSettings): String =
+    s"""CREATE TABLE ${settings.deletionsTable} (
+    persistence_id STRING(MAX) NOT NULL,
+    deleted_to INT64 NOT NULL,
+) PRIMARY KEY (persistence_id)
+"""
 }
 
 trait SpannerLifecycle
@@ -197,7 +195,7 @@ trait SpannerLifecycle
         CreateDatabaseRequest(
           parent = spannerSettings.parent,
           s"CREATE DATABASE ${spannerSettings.database}",
-          List(SpannerSpec.table, SpannerSpec.deleteMetadataTable)
+          List(SpannerSpec.journalTable(spannerSettings), SpannerSpec.deleteMetadataTable(spannerSettings))
         )
       )
     // wait for db to be ready before testing
