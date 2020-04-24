@@ -64,6 +64,7 @@ final private[spanner] class ContinuousQuery[S, T](
       def pushAndUpdateState(t: T) = {
         state = updateState(state, t)
         nrElements += 1
+        log.debug("pushing {}", t)
         push(out, t)
       }
 
@@ -86,7 +87,8 @@ final private[spanner] class ContinuousQuery[S, T](
             case Some(source) =>
               sinkIn = new SubSinkInlet[T]("Yep")
               sinkIn.setHandler(new InHandler {
-                override def onPush(): Unit =
+                override def onPush(): Unit = {
+                  log.debug("onPush inner")
                   if (isAvailable(out)) {
                     if (!nextRow.isEmpty) {
                       throw new RuntimeException(s"onPush called when we already have: " + nextRow)
@@ -97,12 +99,14 @@ final private[spanner] class ContinuousQuery[S, T](
                     if (!nextRow.isEmpty) {
                       throw new RuntimeException(s"onPush called when we already have: " + nextRow)
                     }
+                    log.debug("inPush inner stashing element, not pulling until it is taken")
                     nextRow = OptionVal(sinkIn.grab())
                   }
+                }
 
                 override def onUpstreamFinish(): Unit =
                   if (nextRow.isDefined) {
-                    log.debug("Stream finished. Not creating next as a buffered element")
+                    log.debug("Stream finished. Not creating next as a buffered element: {}", nextRow)
                     // wait for the element to be pulled
                     subStreamFinished = true
                   } else {
@@ -121,8 +125,10 @@ final private[spanner] class ContinuousQuery[S, T](
           }
         }
 
-      override def preStart(): Unit =
+      override def preStart(): Unit = {
+        println("log level = " + log.isDebugEnabled)
         next()
+      }
 
       override def onPull(): Unit = {
         log.debug("onPull. Buffered row: {}", nextRow)
@@ -132,6 +138,10 @@ final private[spanner] class ContinuousQuery[S, T](
             nextRow = OptionVal.none[T]
             if (subStreamFinished) {
               next()
+            }
+            log.info("I should really pull shouldn't i? {} {}", sinkIn.hasBeenPulled, sinkIn.isClosed)
+            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled) {
+              log.info("should have pulled")
             }
           case OptionVal.None =>
             if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled)

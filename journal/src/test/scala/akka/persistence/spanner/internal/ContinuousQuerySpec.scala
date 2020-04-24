@@ -9,11 +9,15 @@ import akka.actor.ActorSystem
 import akka.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
 import akka.stream.scaladsl.{Sink, Source}
 import akka.stream.testkit.scaladsl.TestSink
+import com.typesafe.config.ConfigFactory
 import org.scalatest.concurrent.ScalaFutures
+
 import scala.concurrent.duration._
 import org.scalatest.wordspec.AnyWordSpecLike
 
-class ContinuousQuerySpec extends ScalaTestWithActorTestKit with AnyWordSpecLike with ScalaFutures {
+class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseString("""
+                                                                                         akka.loglevel = DEBUG
+""")) with AnyWordSpecLike with ScalaFutures {
   implicit val as: ActorSystem = system.classicSystem
   "ContinuousQuery" should {
     "work for initial query" in {
@@ -61,13 +65,51 @@ class ContinuousQuerySpec extends ScalaTestWithActorTestKit with AnyWordSpecLike
         .expectComplete()
     }
 
+    "fails if subsstream fails" in {
+      val t = new RuntimeException("oh dear")
+      val sub = ContinuousQuery[String, () => String](
+        "cats",
+        (_, _) => "cats",
+        results(
+          Source(List(() => "one", () => "two")),
+          Source(List(() => "three", () => throw t))
+        ),
+        0,
+        1.second
+      ).map(_.apply()).runWith(TestSink.probe)
+
+      sub
+        .requestNext("one")
+        .requestNext("two")
+        .requestNext("three")
+        .request(1)
+        .expectError(t)
+    }
+
+    "should pull something something" in {
+      val sub = ContinuousQuery[String, String](
+        "cats",
+        (_, _) => "cats",
+        results(Source(List("one")), Source(List("three"))),
+        0,
+        1.second
+      ).runWith(TestSink.probe[String])
+
+      // give time for the startup to do the pull the buffer the element
+      Thread.sleep(500)
+      sub.request(1)
+      sub.expectNext("one")
+
+      Thread.sleep(10000)
+    }
+
     "update state every element" in {
       pending
     }
 
-    def results(results: Source[String, NotUsed]*): String => Option[Source[String, NotUsed]] = {
+    def results[T](results: Source[T, NotUsed]*): String => Option[Source[T, NotUsed]] = {
       var r = results.toList
-      def next(state: String): Option[Source[String, NotUsed]] =
+      def next(state: String): Option[Source[T, NotUsed]] =
         r match {
           case x :: xs =>
             r = xs
