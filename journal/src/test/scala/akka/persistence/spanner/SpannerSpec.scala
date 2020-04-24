@@ -69,6 +69,7 @@ object SpannerSpec {
 
   def config(databaseName: String): Config = {
     val c = ConfigFactory.parseString(s"""
+      akka.loglevel = DEBUG
       akka.actor {
         serialization-bindings {
           "akka.persistence.spanner.CborSerializable" = jackson-cbor 

@@ -133,7 +133,7 @@ private[spanner] final class SessionPool(
     case gt @ GetSession(replyTo, id) =>
       if (log.isDebugEnabled()) {
         log.debugN(
-          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}] stashed [()]",
+          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}] stashed [{}]",
           id,
           replyTo,
           inUseSessions.mkString(", "),
