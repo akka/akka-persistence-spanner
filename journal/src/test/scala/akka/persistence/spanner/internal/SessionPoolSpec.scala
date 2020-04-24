@@ -45,11 +45,11 @@ class SessionPoolSpec extends SpannerSpec {
       }
 
       // should be stashed
-      pool ! GetSession(probe.ref, id1)
+      pool ! GetSession(probe.ref, 2L)
       probe.expectNoMessage()
 
-      pool ! ReleaseSession(ids.head)
-      probe.expectMessageType[PooledSession].id shouldEqual id1
+      pool ! ReleaseSession(1L)
+      probe.expectMessageType[PooledSession].id should ===(2L)
     }
 
     "handle invalid return of session" in new Setup {

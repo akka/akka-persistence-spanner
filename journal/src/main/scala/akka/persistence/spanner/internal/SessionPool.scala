@@ -57,7 +57,7 @@ private[spanner] object SessionPool {
       Behaviors.withTimers[Command] { timers =>
         Behaviors.setup[Command] { ctx =>
           ctx.log.info(
-            "Creating pool. Max size [{}]. Stash [{}].",
+            "Creating pool. Max size [{}]. Max outstanding requests [{}].",
             settings.sessionPool.maxSize,
             settings.sessionPool.maxOutstandingRequests
           )
@@ -87,7 +87,7 @@ private[spanner] object SessionPool {
               timers.startTimerWithFixedDelay(KeepAlive, settings.sessionPool.keepAliveInterval)
               // FIXME Make configurable https://github.com/akka/akka-persistence-spanner/issues/42
               timers.startTimerWithFixedDelay(Stats, 1.second)
-              stash.unstashAll(new SessionPool(client, sessions, ctx, timers, stash, settings.sessionPool))
+              stash.unstashAll(new SessionPool(client, sessions, ctx, timers, settings.sessionPool))
             case RetrySessionCreation(when) =>
               if (when == Duration.Zero) {
                 ctx.log.debug("Retrying session creation")
@@ -119,7 +119,6 @@ private[spanner] final class SessionPool(
     initialSessions: List[Session],
     ctx: ActorContext[Command],
     timers: TimerScheduler[Command],
-    stash: StashBuffer[Command],
     settings: SessionPoolSettings
 ) extends AbstractBehavior[SessionPool.Command](ctx) {
   private val keepAliveInMillis = settings.keepAliveInterval.toMillis
@@ -128,55 +127,57 @@ private[spanner] final class SessionPool(
     mutable.Queue(initialSessions.map(AvailableSession(_, System.currentTimeMillis())): _*)
   private var inUseSessions = Map.empty[Long, Session]
   private var uses = 0
+  private var requestQueue: mutable.Queue[GetSession] = mutable.Queue()
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
       if (log.isTraceEnabled()) {
         log.traceN(
-          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}] stashed [{}]",
+          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}], queued [{}]",
           id,
           replyTo,
           inUseSessions.mkString(", "),
           availableSessions.map(a => (a.session.name, a.lastUsed)).mkString(", "),
-          stash.size
+          requestQueue.size
         )
       }
       if (availableSessions.nonEmpty) {
-        val next = availableSessions.dequeue()
-        replyTo ! PooledSession(next.session, id)
-        inUseSessions += (id -> next.session)
+        handOutSession(id, replyTo)
       } else {
-        if (stash.isFull) {
-          ctx.log.warn("Session pool request stash full, denying request for pool")
+        if (availableSessions.size >= settings.maxOutstandingRequests) {
+          log.warn("Session pool request stash full, denying request for pool")
           replyTo ! PoolBusy(id)
         } else {
-          ctx.log.debug("Stashing request {}", id)
-          stash.stash(gt)
+          log.debug("No free sessions, enqueuing request for session [{}]", id)
+          requestQueue.enqueue(gt)
         }
       }
       this
     case ReleaseSession(id) =>
-      log.trace("ReleaseSession {} stash size {}", id, stash.size)
       uses += 1
       if (inUseSessions.contains(id)) {
         val session = inUseSessions(id)
+        log.trace("Session [{}], [{}] released", id, session.name)
         inUseSessions -= id
         availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
-        stash.unstash(this, 1, identity)
+        handOutSessionToQueuedRequest()
+      } else if (requestQueue.exists(_.id == id)) {
+        // requestor gave up before they got a session
+        log.trace("Queued session request [{}] given up without getting a session", id)
+        requestQueue = requestQueue.filterNot(_.id == id)
       } else {
-        // FIXME, this may be that it timed out and is in the stash waiting, need
-        // to deal with that case and not send a session
-        // https://github.com/akka/akka-persistence-spanner/issues/42
-        log.error("unknown session returned [{}]. This is a bug.", id)
+        log.error("Unknown session returned [{}], this is a bug", id)
         if (log.isDebugEnabled) {
           log.debugN(
             "In-use sessions [{}]. Available sessions [{}]",
-            inUseSessions.map { case (id, session) => (id, session.name) },
-            availableSessions.map { case AvailableSession(session, lastUsed) => (session.name, lastUsed) }
+            inUseSessions.map { case (id, session) => (id, session.name) }.mkString(", "),
+            availableSessions
+              .map { case AvailableSession(session, lastUsed) => (session.name, lastUsed) }
+              .mkString(", ")
           )
         }
-        this
       }
+      this
     case KeepAlive =>
       val currentTime = System.currentTimeMillis()
       val toKeepAlive = availableSessions.collect {
@@ -205,7 +206,7 @@ private[spanner] final class SessionPool(
 
     case ReAddAfterKeepAlive(session) =>
       availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
-      stash.unstash(this, 1, identity)
+      handOutSessionToQueuedRequest()
       this
 
     case ThrowAwayAfterKeepAliveFail(session, cause) =>
@@ -215,7 +216,7 @@ private[spanner] final class SessionPool(
       )
       // FIXME is this really the right thing to do?
       availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
-      stash.unstash(this, 1, identity)
+      handOutSessionToQueuedRequest()
       this
 
     case Stats =>
@@ -243,6 +244,19 @@ private[spanner] final class SessionPool(
     case PreRestart =>
       cleanupOldSessions()
       Behaviors.same
+  }
+
+  private def handOutSessionToQueuedRequest(): Unit =
+    if (requestQueue.nonEmpty) {
+      val getSession = requestQueue.dequeue()
+      handOutSession(getSession.id, getSession.replyTo)
+    }
+
+  private def handOutSession(sessionId: Long, requestor: ActorRef[PooledSession]): Unit = {
+    val next = availableSessions.dequeue()
+    log.traceN("Handing out session [{}], [{}], to [{}]", sessionId, next.session.name, requestor)
+    requestor ! PooledSession(next.session, sessionId)
+    inUseSessions += (sessionId -> next.session)
   }
 
   private def cleanupOldSessions(): Unit =
