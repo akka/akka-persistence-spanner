@@ -8,6 +8,7 @@ import akka.NotUsed
 import akka.actor.ExtendedActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.actor.typed.scaladsl.adapter._
+import akka.persistence.query.scaladsl.{CurrentEventsByPersistenceIdQuery, EventsByPersistenceIdQuery}
 import akka.persistence.query.scaladsl.{
   CurrentEventsByTagQuery,
   CurrentPersistenceIdsQuery,
@@ -16,6 +17,7 @@ import akka.persistence.query.scaladsl.{
   ReadJournal
 }
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset}
+import akka.persistence.spanner.Schema.Journal
 import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension}
 import akka.persistence.spanner.{Schema, SpannerOffset, SpannerSettings}
 import akka.serialization.SerializationExtension
@@ -27,8 +29,16 @@ import com.google.spanner.v1.{Type, TypeCode}
 import com.typesafe.config.Config
 import org.slf4j.LoggerFactory
 
+import scala.collection.immutable
+
 object SpannerReadJournal {
   val Identifier = "akka.persistence.spanner.query"
+
+  private val EventsByPersistenceIdTypes = Map(
+    "persistence_id" -> Type(TypeCode.STRING),
+    "from_sequence_nr" -> Type(TypeCode.INT64),
+    "to_sequence_nr" -> Type(TypeCode.INT64)
+  )
 }
 
 final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgPath: String)
@@ -36,7 +46,9 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
     with CurrentEventsByTagQuery
     with EventsByTagQuery
     with CurrentPersistenceIdsQuery
-    with PersistenceIdsQuery {
+    with PersistenceIdsQuery
+    with EventsByPersistenceIdQuery
+    with CurrentEventsByPersistenceIdQuery {
   private val log = LoggerFactory.getLogger(classOf[SpannerReadJournal])
   private val sharedConfigPath = cfgPath.replaceAll("""\.query$""", "")
   private val settings = new SpannerSettings(system.settings.config.getConfig(sharedConfigPath))
@@ -49,6 +61,9 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
 
   private val PersistenceIdsQuery =
     s"SELECT DISTINCT persistence_id from ${settings.table}"
+
+  private val EventsForPersisnteceIdSql =
+    s"SELECT ${Journal.Columns.mkString(",")} FROM ${settings.table} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
 
   override def currentEventsByTag(tag: String, offset: Offset): scaladsl.Source[EventEnvelope, NotUsed] = {
     val spannerOffset = toSpannerOffset(offset)
@@ -69,51 +84,7 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
           "write_time" -> Type(TypeCode.TIMESTAMP)
         )
       )
-      .statefulMapConcat { () =>
-        {
-          var currentTimestamp: String = spannerOffset.commitTimestamp
-          var currentSequenceNrs: Map[String, Long] = spannerOffset.seen
-          values => {
-            val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, values)
-            if (commitTimestamp == currentTimestamp) {
-              // has this already been seen?
-              if (currentSequenceNrs.get(pr.persistenceId).exists(_ >= pr.sequenceNr)) {
-                log.debugN(
-                  "filtering {} {} as commit timestamp is the same as last offset and is in seen {}",
-                  pr.persistenceId,
-                  pr.sequenceNr,
-                  currentSequenceNrs
-                )
-                Nil
-              } else {
-                currentSequenceNrs = currentSequenceNrs.updated(pr.persistenceId, pr.sequenceNr)
-                List(
-                  EventEnvelope(
-                    SpannerOffset(commitTimestamp, currentSequenceNrs),
-                    pr.persistenceId,
-                    pr.sequenceNr,
-                    pr.payload,
-                    pr.timestamp
-                  )
-                )
-              }
-            } else {
-              // ne timestamp, reset currentSequenceNrs
-              currentTimestamp = commitTimestamp
-              currentSequenceNrs = Map(pr.persistenceId -> pr.sequenceNr)
-              List(
-                EventEnvelope(
-                  SpannerOffset(commitTimestamp, currentSequenceNrs),
-                  pr.persistenceId,
-                  pr.sequenceNr,
-                  pr.payload,
-                  pr.timestamp
-                )
-              )
-            }
-          }
-        }
-      }
+      .statefulMapConcat(deserializeAndAddOffset(spannerOffset))
       .mapMaterializedValue(_ => NotUsed)
   }
 
@@ -164,6 +135,98 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
         else {
           seenIds += pid
           pid :: Nil
+        }
+      }
+    }
+  }
+
+  override def eventsByPersistenceId(
+      persistenceId: String,
+      fromSequenceNr: Long,
+      toSequenceNr: Long
+  ): Source[EventEnvelope, NotUsed] =
+    // TODO stop the query at toSequenceNr
+    ContinuousQuery[Long, EventEnvelope](
+      fromSequenceNr,
+      (_, ee) => ee.sequenceNr,
+      currentSequenceNr => {
+        if (currentSequenceNr == toSequenceNr) {
+          None
+        } else {
+          Some(currentEventsByPersistenceId(persistenceId, currentSequenceNr + 1, toSequenceNr))
+        }
+      },
+      0,
+      settings.queryConfig.refreshInterval
+    )
+
+  override def currentEventsByPersistenceId(
+      persistenceId: String,
+      fromSequenceNr: Long,
+      toSequenceNr: Long
+  ): Source[EventEnvelope, NotUsed] = {
+    log.infoN("currentEventsByPersistenceId {} {} {}", persistenceId, fromSequenceNr, toSequenceNr)
+    grpcClient
+      .streamingQuery(
+        EventsForPersisnteceIdSql,
+        params = Some(
+          Struct(
+            fields = Map(
+              Journal.PersistenceId._1 -> Value(StringValue(persistenceId)),
+              "from_sequence_nr" -> Value(StringValue(fromSequenceNr.toString)),
+              "to_sequence_nr" -> Value(StringValue(toSequenceNr.toString))
+            )
+          )
+        ),
+        paramTypes = SpannerReadJournal.EventsByPersistenceIdTypes
+      )
+      .statefulMapConcat(deserializeAndAddOffset(SpannerOffset(Schema.Journal.NoOffset, Map.empty)))
+      .mapMaterializedValue(_ => NotUsed)
+  }
+
+  private def deserializeAndAddOffset(
+      spannerOffset: SpannerOffset
+  ): () => Seq[Value] => immutable.Iterable[EventEnvelope] = { () =>
+    {
+      var currentTimestamp: String = spannerOffset.commitTimestamp
+      var currentSequenceNrs: Map[String, Long] = spannerOffset.seen
+      values => {
+        val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, values)
+        if (commitTimestamp == currentTimestamp) {
+          // has this already been seen?
+          if (currentSequenceNrs.get(pr.persistenceId).exists(_ >= pr.sequenceNr)) {
+            log.debugN(
+              "filtering {} {} as commit timestamp is the same as last offset and is in seen {}",
+              pr.persistenceId,
+              pr.sequenceNr,
+              currentSequenceNrs
+            )
+            Nil
+          } else {
+            currentSequenceNrs = currentSequenceNrs.updated(pr.persistenceId, pr.sequenceNr)
+            List(
+              EventEnvelope(
+                SpannerOffset(commitTimestamp, currentSequenceNrs),
+                pr.persistenceId,
+                pr.sequenceNr,
+                pr.payload,
+                pr.timestamp
+              )
+            )
+          }
+        } else {
+          // ne timestamp, reset currentSequenceNrs
+          currentTimestamp = commitTimestamp
+          currentSequenceNrs = Map(pr.persistenceId -> pr.sequenceNr)
+          List(
+            EventEnvelope(
+              SpannerOffset(commitTimestamp, currentSequenceNrs),
+              pr.persistenceId,
+              pr.sequenceNr,
+              pr.payload,
+              pr.timestamp
+            )
+          )
         }
       }
     }
