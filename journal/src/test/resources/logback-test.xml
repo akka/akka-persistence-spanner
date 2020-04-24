@@ -9,6 +9,7 @@
   </appender>
   <logger name="io.netty" level="ERROR" />
   <logger name="io.grpc" level="INFO" />
+  <logger name="akka.persistence.spanner" level="INFO"/>
   <root level="INFO">
     <appender-ref ref="CONSOLE" />
   </root>

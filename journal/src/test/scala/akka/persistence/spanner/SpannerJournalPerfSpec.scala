@@ -31,6 +31,8 @@ object SpannerJournalPerfSpec {
 class SpannerJournalPerfSpec extends JournalPerfSpec(SpannerJournalPerfSpec.config) with SpannerLifecycle {
   override def databaseName: String = SpannerJournalPerfSpec.dbName
 
+  override def shouldDumpRows: Boolean = false
+
   // tune event count down since emulator only does one transaction at a time and
   // bombarding real spanner does also not work great
   override def eventsCount: Int = 1000

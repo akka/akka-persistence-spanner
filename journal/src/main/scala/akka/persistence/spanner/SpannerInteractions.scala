@@ -4,6 +4,8 @@
 
 package akka.persistence.spanner
 
+import java.time.{Instant, ZoneOffset}
+import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder}
 import java.util.Base64
 
 import akka.actor.ActorSystem
@@ -37,6 +39,39 @@ private[spanner] object Schema {
     val Tags = "tags" -> Type(TypeCode.ARRAY)
 
     val Columns = List(PersistenceId, SeqNr, Event, SerId, SerManifest, WriteTime, WriterUUID, Tags).map(_._1)
+
+    val formatter = (new DateTimeFormatterBuilder)
+      .appendOptional(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
+      .optionalStart
+      .appendOffsetId
+      .optionalEnd
+      .toFormatter
+      .withZone(ZoneOffset.UTC)
+
+    val NoOffset = formatter.format(Instant.ofEpochMilli(0))
+
+    def deserializeRow(serialization: Serialization, values: Seq[Value]): (PersistentRepr, String) = {
+      val persistenceId = values.head.getStringValue
+      val sequenceNr = values(1).getStringValue.toLong
+      val payloadAsString = values(2).getStringValue
+      val serId = values(3).getStringValue.toInt
+      val serManifest = values(4).getStringValue
+      // keep this in the offset as the original format rather than do any conversions
+      val writeOriginal = values(5).getStringValue
+      val writeTimestamp: Instant = Instant.from(formatter.parse(writeOriginal))
+      val writerUuid = values(6).getStringValue
+      val payloadAsBytes = Base64.getDecoder.decode(payloadAsString)
+      val payload = serialization.deserialize(payloadAsBytes, serId, serManifest).get
+      (
+        PersistentRepr(
+          payload,
+          sequenceNr,
+          persistenceId,
+          writerUuid = writerUuid
+        ).withTimestamp(writeTimestamp.toEpochMilli),
+        writeOriginal
+      )
+    }
   }
 
   val ReplayTypes = Map(
@@ -133,10 +168,12 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
   }
 
   def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] =
-    spannerGrpcClient.withSession(implicit session => internalReadHighestSequenceNr(persistenceId, fromSequenceNr))
+    spannerGrpcClient.withSession(
+      implicit session => internalReadHighestSequenceNr(persistenceId, fromSequenceNr)
+    )
 
-  def deleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] = spannerGrpcClient.withSession {
-    implicit session =>
+  def deleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
+    spannerGrpcClient.withSession { implicit session =>
       log.debug("deleteMessagesTo, session id [{}]", session.id)
 
       def params(to: Long) =
@@ -162,7 +199,7 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
           )
         )
       } yield ()
-  }
+    }
 
   def streamJournal(
       serialization: Serialization,
@@ -172,22 +209,7 @@ private[spanner] class SpannerInteractions(spannerGrpcClient: SpannerGrpcClient,
       max: Long
   )(replay: PersistentRepr => Unit): Future[Unit] = {
     def replayRow(values: Seq[Value]): Unit = {
-      val persistenceId = values.head.getStringValue
-      val sequenceNr = values(1).getStringValue.toLong
-      val payloadAsString = values(2).getStringValue
-      val serId = values(3).getStringValue.toInt
-      val serManifest = values(4).getStringValue
-      val writerUuid = values(6).getStringValue
-
-      val payloadAsBytes = Base64.getDecoder.decode(payloadAsString)
-      val payload = serialization.deserialize(payloadAsBytes, serId, serManifest).get
-      val repr = PersistentRepr(
-        payload,
-        sequenceNr,
-        persistenceId,
-        writerUuid = writerUuid
-      )
-
+      val (repr, _) = Schema.Journal.deserializeRow(serialization, values)
       log.debug("replaying {}", repr)
       replay(repr)
     }

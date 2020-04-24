@@ -6,7 +6,7 @@ import akka.persistence.spanner.SpannerSpec
 class SpannerReadJournalSpec extends SpannerSpec {
   "SpannerReadJournal" should {
     "load" in {
-      PersistenceQuery(system).readJournalFor[SpannerReadJournal](SpannerReadJournal.Identifier)
+      PersistenceQuery(testKit.system).readJournalFor[SpannerReadJournal](SpannerReadJournal.Identifier)
     }
   }
 }

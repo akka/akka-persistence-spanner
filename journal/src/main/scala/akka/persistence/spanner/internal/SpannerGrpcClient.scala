@@ -4,10 +4,9 @@
 
 package akka.persistence.spanner.internal
 
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
-import akka.Done
+import akka.{Done, NotUsed}
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ActorSystem, SupervisorStrategy}
@@ -85,7 +84,7 @@ private[spanner] object SpannerGrpcClient {
       paramTypes: Map[String, Type]
   ): Source[Seq[Value], Future[Done]] = {
     val sessionId = nextSessionId()
-    val result = getSession(sessionId).map { session =>
+    val result: Future[Source[Seq[Value], NotUsed]] = getSession(sessionId).map { session =>
       log.debug("streamingQuery, session id [{}]", session.id)
       client
         .executeStreamingSql(
@@ -97,6 +96,7 @@ private[spanner] object SpannerGrpcClient {
       .futureSource(result)
       .watchTermination() { (_, terminationFuture) =>
         terminationFuture.onComplete { _ =>
+          log.debug("Streaming query {} finished: {}", sessionId, sql)
           pool.tell(ReleaseSession(sessionId))
         }
         terminationFuture
@@ -211,7 +211,7 @@ private[spanner] object SpannerGrpcClient {
         // release
         log.debug("User query failed: {}. Returning session.", t.getMessage)
         pool.tell(ReleaseSession(sessionUuid))
-    }((ExecutionContexts.parasitic))
+    }(ExecutionContexts.parasitic)
     result
   }
 
