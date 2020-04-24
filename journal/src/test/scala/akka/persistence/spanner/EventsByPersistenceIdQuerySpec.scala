@@ -1,3 +1,7 @@
+/*
+ * Copyright (C) 2020 Lightbend Inc. <http://www.lightbend.com>
+ */
+
 package akka.persistence.spanner
 
 import akka.persistence.query.{EventEnvelope, PersistenceQuery}
@@ -38,6 +42,24 @@ class EventsByPersistenceIdQuerySpec extends SpannerSpec {
       }
 
     s"$queryType EventsByPersistenceId" should {
+      "populates spanner offset" in {
+        val pid = nextPid
+        val persister = testKit.spawn(TestActors.Persister(pid))
+        val probe = testKit.createTestProbe[Done]()
+        persister ! PersistMe("e-1", probe.ref)
+        probe.expectMessage(Done)
+
+        val sub = doQuery(pid, 0, Long.MaxValue)
+          .runWith(TestSink.probe)
+          .request(1)
+
+        sub.expectNextPF {
+          case EventEnvelope(SpannerOffset(_, seen), `pid`, 1, "e-1") if seen == Map(pid -> 1) =>
+        }
+
+        assertFinished(sub)
+      }
+
       "return all events then compete" in {
         val pid = nextPid
         val persister = testKit.spawn(TestActors.Persister(pid))

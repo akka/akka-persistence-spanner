@@ -145,7 +145,6 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
       fromSequenceNr: Long,
       toSequenceNr: Long
   ): Source[EventEnvelope, NotUsed] =
-    // TODO stop the query at toSequenceNr
     ContinuousQuery[Long, EventEnvelope](
       fromSequenceNr,
       (_, ee) => ee.sequenceNr,

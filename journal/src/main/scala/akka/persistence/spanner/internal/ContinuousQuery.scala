@@ -84,7 +84,7 @@ final private[spanner] class ContinuousQuery[S, T](
           log.debug("Next source {}. Current state {} {}", source, nextRow, state)
           source match {
             case Some(source) =>
-              sinkIn = new SubSinkInlet[T]("Yep")
+              sinkIn = new SubSinkInlet[T]("Inner")
               sinkIn.setHandler(new InHandler {
                 override def onPush(): Unit =
                   if (isAvailable(out)) {
@@ -134,7 +134,7 @@ final private[spanner] class ContinuousQuery[S, T](
               next()
             }
           case OptionVal.None =>
-            if (!subStreamFinished && !sinkIn.hasBeenPulled)
+            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled)
               sinkIn.pull()
         }
       }
