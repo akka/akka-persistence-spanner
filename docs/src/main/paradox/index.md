@@ -9,6 +9,7 @@ The Akka Persistence Spanner  plugin allows for using Google Spanner as a backen
 * [overview](overview.md)
 * [Getting Started](getting-started.md)
 * [Journal Plugin](journal.md)
+* [Snapshot Plugin](snapshots.md)
 * [Contributing](contributing.md)
 
 @@@
