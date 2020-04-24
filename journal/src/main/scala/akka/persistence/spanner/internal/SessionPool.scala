@@ -86,7 +86,7 @@ private[spanner] object SessionPool {
               ctx.log.debug("Sessions created [{}]", sessions)
               timers.startTimerWithFixedDelay(KeepAlive, settings.sessionPool.keepAliveInterval)
               // FIXME Make configurable https://github.com/akka/akka-persistence-spanner/issues/42
-              timers.startTimerWithFixedDelay(Stats, 3.second)
+              timers.startTimerWithFixedDelay(Stats, 1.second)
               stash.unstashAll(new SessionPool(client, sessions, ctx, timers, stash, settings.sessionPool))
             case RetrySessionCreation(when) =>
               if (when == Duration.Zero) {
@@ -133,11 +133,12 @@ private[spanner] final class SessionPool(
     case gt @ GetSession(replyTo, id) =>
       if (log.isDebugEnabled()) {
         log.debugN(
-          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}]",
+          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}] stashed [()]",
           id,
           replyTo,
           inUseSessions.mkString(", "),
-          availableSessions.map(a => (a.session.name, a.lastUsed)).mkString(", ")
+          availableSessions.map(a => (a.session.name, a.lastUsed)).mkString(", "),
+          stash.size
         )
       }
       if (availableSessions.nonEmpty) {
@@ -149,12 +150,13 @@ private[spanner] final class SessionPool(
           ctx.log.warn("Session pool request stash full, denying request for pool")
           replyTo ! PoolBusy(id)
         } else {
+          ctx.log.debug("Stashing request {}", id)
           stash.stash(gt)
         }
       }
       this
     case ReleaseSession(id) =>
-      log.debug("ReleaseSession {}", id)
+      log.debug("ReleaseSession {} stash size {}", id, stash.size)
       uses += 1
       if (inUseSessions.contains(id)) {
         val session = inUseSessions(id)
