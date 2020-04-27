@@ -105,8 +105,6 @@ class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseS
       sub.request(3)
       sub.expectNext("two")
       sub.expectNext("three")
-
-      1 shouldEqual 2
     }
 
     "update state every element" in {

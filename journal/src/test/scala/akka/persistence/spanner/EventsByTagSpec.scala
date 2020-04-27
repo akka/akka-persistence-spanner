@@ -175,8 +175,6 @@ class EventsByTagSpec extends SpannerSpec {
           }
         }
       }
-
-      1 shouldEqual 2
     }
   }
 }
