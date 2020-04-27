@@ -13,9 +13,9 @@ import akka.annotation.InternalApi
 import akka.dispatch.ExecutionContexts
 import akka.event.Logging
 import akka.persistence.journal.{AsyncWriteJournal, Tagged}
-import akka.persistence.spanner.SpannerInteractions.SerializedWrite
+import akka.persistence.spanner.internal.SpannerJournalInteractions.SerializedWrite
 import akka.persistence.spanner.SpannerJournal.WriteFinished
-import akka.persistence.spanner.internal.SpannerGrpcClientExtension
+import akka.persistence.spanner.internal.{SpannerGrpcClientExtension, SpannerJournalInteractions}
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.serialization.{Serialization, SerializationExtension, Serializers}
 import com.typesafe.config.Config
@@ -44,7 +44,7 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
 
   private val grpcClient = SpannerGrpcClientExtension(system.toTyped).clientFor(sharedConfigPath)
 
-  private val spannerInteractions = new SpannerInteractions(
+  private val spannerInteractions = new SpannerJournalInteractions(
     grpcClient,
     journalSettings
   )

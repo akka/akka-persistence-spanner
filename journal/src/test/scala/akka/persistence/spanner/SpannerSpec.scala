@@ -33,7 +33,7 @@ import org.scalatest.{BeforeAndAfterAll, Outcome, Suite}
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext}
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 object SpannerSpec {
   private var instanceCreated = false
@@ -77,6 +77,9 @@ object SpannerSpec {
       }
       akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
       akka.test.timefactor = 2
+      # allow java serialization when testing
+      akka.actor.allow-java-serialization = on
+      akka.actor.warn-about-java-serializer-usage = off
       #instance-config
       akka.persistence.spanner {
         database = ${databaseName.toLowerCase} 
@@ -112,7 +115,7 @@ object SpannerSpec {
       }
      """)
 
-  val table =
+  val journalTable =
     """
   CREATE TABLE journal (
         persistence_id STRING(MAX) NOT NULL,
@@ -121,7 +124,7 @@ object SpannerSpec {
         ser_id INT64 NOT NULL,
         ser_manifest STRING(MAX) NOT NULL,
         tags ARRAY<STRING(MAX)>,
-        write_time TIMESTAMP OPTIONS (allow_commit_timestamp=true),
+        write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
         writer_uuid STRING(MAX) NOT NULL,
 ) PRIMARY KEY (persistence_id, sequence_nr)
   """
@@ -133,6 +136,18 @@ object SpannerSpec {
         deleted_to INT64 NOT NULL,
       ) PRIMARY KEY (persistence_id)
   """
+
+  val snapshotTable =
+    """
+    CREATE TABLE snapshots (
+      persistence_id STRING(MAX) NOT NULL,
+      sequence_nr INT64 NOT NULL,
+      timestamp TIMESTAMP NOT NULL,
+      ser_id INT64 NOT NULL,
+      ser_manifest STRING(MAX) NOT NULL,
+      snapshot BYTES(MAX)
+    ) PRIMARY KEY (persistence_id, sequence_nr) 
+    """
 }
 
 trait SpannerLifecycle
@@ -183,6 +198,8 @@ trait SpannerLifecycle
 
   @volatile private var failed = false
 
+  def withSnapshotStore: Boolean = false
+
   override protected def beforeAll(): Unit = {
     super.beforeAll()
     def databaseNotFound(t: Throwable): Boolean =
@@ -218,7 +235,11 @@ trait SpannerLifecycle
         CreateDatabaseRequest(
           parent = spannerSettings.parent,
           s"CREATE DATABASE ${spannerSettings.database}",
-          List(SpannerSpec.table, SpannerSpec.deleteMetadataTable)
+          SpannerSpec.journalTable ::
+          SpannerSpec.deleteMetadataTable ::
+          (if (withSnapshotStore)
+             SpannerSpec.snapshotTable :: Nil
+           else Nil)
         )
       )
     // wait for db to be ready before testing
@@ -248,19 +269,35 @@ trait SpannerLifecycle
         execute <- spannerClient.executeSql(
           ExecuteSqlRequest(
             session = session.name,
-            sql = s"select * from ${spannerSettings.table} order by persistence_id, sequence_nr"
+            sql = s"select * from ${spannerSettings.journalTable} order by persistence_id, sequence_nr"
           )
         )
         deletions <- spannerClient.executeSql(
           ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.deletionsTable}")
         )
+        snapshotRows <- if (withSnapshotStore)
+          spannerClient
+            .executeSql(
+              ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.snapshotsTable}")
+            )
+            .map(_.rows)
+        else
+          Future.successful(Seq.empty)
         _ <- spannerClient.deleteSession(DeleteSessionRequest(session.name))
-      } yield (execute.rows, deletions.rows)
-      val (messageRows, deletionRows) = rows.futureValue
-      messageRows.foreach(row => log.info("row: {} ", reasonableStringFormatFor(row)))
+      } yield (execute.rows, deletions.rows, snapshotRows)
+      val (messageRows, deletionRows, snapshotRows) = rows.futureValue
+
+      def printRow(row: ListValue): Unit =
+        log.info("row: {} ", reasonableStringFormatFor(row))
+
+      messageRows.foreach(printRow)
       log.info("Message rows dumped.")
-      deletionRows.foreach(row => log.info("row: {} ", reasonableStringFormatFor(row)))
+      deletionRows.foreach(printRow)
       log.info("Deletion rows dumped.")
+      if (withSnapshotStore) {
+        snapshotRows.foreach(printRow)
+      }
+      log.info("Snapshot rows dumped.")
     }
 
     adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
@@ -271,7 +308,9 @@ trait SpannerLifecycle
     row.values
       .map(_.kind match {
         case Kind.ListValue(list) => reasonableStringFormatFor(list)
-        case Kind.StringValue(string) => s"'$string'"
+        case Kind.StringValue(string) =>
+          if (string.length <= 50) s"'$string'"
+          else s"'${string.substring(0, 50)}...'"
         case Kind.BoolValue(bool) => bool.toString
         case Kind.NumberValue(nr) => nr.toString
         case Kind.NullValue(_) => "null"

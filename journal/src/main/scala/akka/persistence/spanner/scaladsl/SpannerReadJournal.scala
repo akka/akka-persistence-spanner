@@ -16,8 +16,9 @@ import akka.persistence.query.scaladsl.{
   ReadJournal
 }
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset}
+import akka.persistence.spanner.internal.SpannerJournalInteractions.Schema
 import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension}
-import akka.persistence.spanner.{Schema, SpannerOffset, SpannerSettings}
+import akka.persistence.spanner.{SpannerOffset, SpannerSettings}
 import akka.serialization.SerializationExtension
 import akka.stream.scaladsl
 import akka.stream.scaladsl.Source
@@ -45,10 +46,10 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   private val grpcClient = SpannerGrpcClientExtension(system.toTyped).clientFor(sharedConfigPath)
 
   private val EventsByTagSql =
-    s"SELECT ${Schema.Journal.Columns.mkString(",")} from ${settings.table} WHERE @tag IN UNNEST(tags) AND write_time >= @write_time ORDER BY write_time, persistence_id, sequence_nr "
+    s"SELECT ${Schema.Journal.Columns.mkString(",")} from ${settings.journalTable} WHERE @tag IN UNNEST(tags) AND write_time >= @write_time ORDER BY write_time, persistence_id, sequence_nr "
 
   private val PersistenceIdsQuery =
-    s"SELECT DISTINCT persistence_id from ${settings.table}"
+    s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
 
   override def currentEventsByTag(tag: String, offset: Offset): scaladsl.Source[EventEnvelope, NotUsed] = {
     val spannerOffset = toSpannerOffset(offset)
