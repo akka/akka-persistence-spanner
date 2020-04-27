@@ -129,8 +129,8 @@ private[spanner] final class SessionPool(
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
-      if (log.isDebugEnabled()) {
-        log.debug(
+      if (log.isTraceEnabled()) {
+        log.trace(
           "GetSession from [{}], inUseSessions [{}], availableSessions [{}]",
           replyTo,
           inUseSessions.mkString(", "),
@@ -151,7 +151,7 @@ private[spanner] final class SessionPool(
       }
       this
     case ReleaseSession(id) =>
-      log.debug("ReleaseSession {}", id)
+      log.trace("ReleaseSession [{}]", id)
       if (inUseSessions.contains(id)) {
         val session = inUseSessions(id)
         inUseSessions -= id
@@ -210,7 +210,7 @@ private[spanner] final class SessionPool(
       this
 
     case other =>
-      log.error("Unexpected message in active state {}", other)
+      log.error("Unexpected message in active state [{}]", other.getClass)
       this
   }
 

@@ -19,8 +19,6 @@ object PrintSchema {
       }
     }
 
-    // TODO add snapshots table to a file as well
-
     withWriter("./target/journal-tables.txt") { pw =>
       pw.println("//#journal-tables")
       pw.println(SpannerSpec.journalTable(settings))
@@ -28,6 +26,11 @@ object PrintSchema {
       pw.println("//#journal-tables")
     }
 
+    withWriter("./target/snapshot-tables.txt") { pw =>
+      pw.println("//#snapshot-tables")
+      pw.println(SpannerSpec.snapshotTable(settings))
+      pw.println("//#snapshot-tables")
+    }
     system.terminate()
   }
 }
