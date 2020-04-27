@@ -42,6 +42,9 @@ jobs:
       - JDK="adopt@~1.11-0"
       - CMD=";test"
       name: "Run tests (AdoptOpenJDK 11)"
+    - script: jabba use adopt@~1.11-0 && java -version && ./docker/setup_emulator && ./testLatestAkkaSnapshot.sh
+      name: "Run tests with Akka snapshot"
+      if: type = cron
 
     - stage: publish
     - env:
