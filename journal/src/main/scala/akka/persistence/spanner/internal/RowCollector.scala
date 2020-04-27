@@ -57,7 +57,6 @@ import com.google.spanner.v1.PartialResultSet
           incompleteRow match {
             case OptionVal.None =>
               val rows = currentSet.values.grouped(columnsPerRow).toSeq
-              log.debug("rows: {}", rows)
               if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
                 log.debug("emitting multiple")
                 emitMultiple(out, rows.iterator)
