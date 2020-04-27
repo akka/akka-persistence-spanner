@@ -29,6 +29,7 @@ private[spanner] object ContinuousQuery {
     Source.fromGraph(new ContinuousQuery[S, T](initialState, updateState, nextQuery, threshold, refreshInterval))
 
   private case object NextQuery
+  private case object Status
 }
 
 /**
@@ -70,6 +71,14 @@ final private[spanner] class ContinuousQuery[S, T](
 
       override protected def onTimer(timerKey: Any): Unit = timerKey match {
         case NextQuery => next()
+        case ContinuousQuery.Status =>
+          log.info(
+            "Status: has been pulled? {}. subStreamFinished {}. innerSink has been pulled? {}, inner sink closed {}",
+            isAvailable(out),
+            subStreamFinished,
+            sinkIn.hasBeenPulled,
+            sinkIn.isClosed
+          )
       }
 
       def next(): Unit =
@@ -93,13 +102,15 @@ final private[spanner] class ContinuousQuery[S, T](
                     if (!nextRow.isEmpty) {
                       throw new RuntimeException(s"onPush called when we already have: " + nextRow)
                     }
-                    pushAndUpdateState(sinkIn.grab())
+                    val element = sinkIn.grab()
+                    log.debug("onPush inner pushing right away {}", element)
+                    pushAndUpdateState(element)
                     sinkIn.pull()
                   } else {
                     if (!nextRow.isEmpty) {
                       throw new RuntimeException(s"onPush called when we already have: " + nextRow)
                     }
-                    log.debug("inPush inner stashing element, not pulling until it is taken")
+                    log.debug("onPush inner buffering element, not pulling until it is taken")
                     nextRow = OptionVal(sinkIn.grab())
                   }
                 }
@@ -127,6 +138,7 @@ final private[spanner] class ContinuousQuery[S, T](
 
       override def preStart(): Unit = {
         println("log level = " + log.isDebugEnabled)
+        scheduleAtFixedRate(ContinuousQuery.Status, 400.millis, 400.millis)
         next()
       }
 
@@ -145,8 +157,10 @@ final private[spanner] class ContinuousQuery[S, T](
               }
             }
           case OptionVal.None =>
-            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled)
+            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled) {
+              log.debug("onPull and no element, pulling")
               sinkIn.pull()
+            }
         }
       }
 
