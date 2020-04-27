@@ -55,7 +55,7 @@ def common: Seq[Setting[_]] = Seq(
 
 lazy val dontPublish = Seq(
   skip in publish := true,
-//  whitesourceIgnore := true,
+  whitesourceIgnore := true,
   publishArtifact in Compile := false
 )
 
