@@ -4,6 +4,7 @@
 
 package akka.persistence.spanner
 
+import akka.actor.testkit.typed.scaladsl.LogCapturing
 import akka.{Done, NotUsed}
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset, PersistenceQuery}
 import akka.persistence.spanner.EventsByTagSpec.{Current, Live, QueryType}
@@ -12,6 +13,7 @@ import akka.persistence.spanner.scaladsl.SpannerReadJournal
 import akka.stream.scaladsl.{Sink, Source}
 import akka.stream.testkit.TestSubscriber
 import akka.stream.testkit.scaladsl.TestSink
+
 import scala.concurrent.duration._
 
 object EventsByTagSpec {
@@ -163,7 +165,7 @@ class EventsByTagSpec extends SpannerSpec {
         probe.expectMessage(10.seconds, Done)
       }
 
-      result.request(21)
+      result.request(30)
 
       for (i <- 21 to 40) {
         val expectedEvent = s"e-$i"
@@ -173,6 +175,8 @@ class EventsByTagSpec extends SpannerSpec {
           }
         }
       }
+
+      1 shouldEqual 2
     }
   }
 }

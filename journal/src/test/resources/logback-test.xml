@@ -1,17 +1,25 @@
 <?xml version="1.0" encoding="utf-8"?>
 <configuration>
-  <appender name="CONSOLE"
-  class="ch.qos.logback.core.ConsoleAppender">
-    <target>System.out</target>
-    <encoder>
-      <pattern>%date{ISO8601} %-5level[%thread] %logger{1} [%X{akkaSource}] - %m%n%xException</pattern>
-    </encoder>
-  </appender>
-  <logger name="io.netty" level="ERROR" />
-  <logger name="io.grpc" level="INFO" />
+    <appender name="STDOUT" class="ch.qos.logback.core.ConsoleAppender">
+        <filter class="ch.qos.logback.classic.filter.ThresholdFilter">
+            <level>INFO</level>
+        </filter>
+        <encoder>
+            <pattern>[%date{ISO8601}] [%level] [%logger] [%marker] [%thread] - %msg {%mdc}%n</pattern>
+        </encoder>
+    </appender>
 
-<!-- FIXME -->
-  <root level="TRACE">
-    <appender-ref ref="CONSOLE" />
-  </root>
+    <appender name="CapturingAppender" class="akka.actor.testkit.typed.internal.CapturingAppender"/>
+
+
+    <logger name="io.netty" level="ERROR"/>
+    <logger name="io.grpc" level="INFO"/>
+
+    <logger name="akka.actor.testkit.typed.internal.CapturingAppenderDelegate">
+        <appender-ref ref="STDOUT"/>
+    </logger>
+
+    <root level="TRACE">
+        <appender-ref ref="CapturingAppender"/>
+    </root>
 </configuration>

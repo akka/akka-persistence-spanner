@@ -6,7 +6,7 @@ package akka.persistence.spanner.internal
 
 import akka.NotUsed
 import akka.actor.ActorSystem
-import akka.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
+import akka.actor.testkit.typed.scaladsl.{LogCapturing, ScalaTestWithActorTestKit}
 import akka.stream.scaladsl.{Sink, Source}
 import akka.stream.testkit.scaladsl.TestSink
 import com.typesafe.config.ConfigFactory
@@ -17,7 +17,7 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseString("""
                                                                                          akka.loglevel = DEBUG
-""")) with AnyWordSpecLike with ScalaFutures {
+""")) with AnyWordSpecLike with ScalaFutures with LogCapturing {
   implicit val as: ActorSystem = system.classicSystem
   "ContinuousQuery" should {
     "work for initial query" in {
@@ -90,7 +90,7 @@ class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseS
       val sub = ContinuousQuery[String, String](
         "cats",
         (_, _) => "cats",
-        results(Source(List("one")), Source(List("three"))),
+        results(Source(List("one", "two", "three"))),
         0,
         1.second
       ).runWith(TestSink.probe[String])
@@ -100,7 +100,13 @@ class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseS
       sub.request(1)
       sub.expectNext("one")
 
-      Thread.sleep(10000)
+      sub.expectNoMessage(1.second)
+
+      sub.request(3)
+      sub.expectNext("two")
+      sub.expectNext("three")
+
+      1 shouldEqual 2
     }
 
     "update state every element" in {

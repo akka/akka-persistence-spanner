@@ -137,7 +137,6 @@ final private[spanner] class ContinuousQuery[S, T](
         }
 
       override def preStart(): Unit = {
-        println("log level = " + log.isDebugEnabled)
         scheduleAtFixedRate(ContinuousQuery.Status, 400.millis, 400.millis)
         next()
       }

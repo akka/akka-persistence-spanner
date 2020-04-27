@@ -6,7 +6,8 @@ package akka.persistence.spanner
 
 import java.util.concurrent.atomic.AtomicLong
 
-import akka.actor.testkit.typed.scaladsl.ActorTestKit
+import akka.actor.testkit.typed.internal.CapturingAppender
+import akka.actor.testkit.typed.scaladsl.{ActorTestKit}
 import akka.actor.typed.scaladsl.adapter._
 import akka.grpc.GrpcClientSettings
 import com.google.auth.oauth2.GoogleCredentials
@@ -156,7 +157,7 @@ trait SpannerLifecycle
     with AnyWordSpecLike
     with ScalaFutures
     with Matchers
-    with Eventually {
+    with Eventually { self =>
   def databaseName: String
   def shouldDumpRows: Boolean = true
 
@@ -166,7 +167,8 @@ trait SpannerLifecycle
   implicit val defaultPatience = PatienceConfig(timeout = Span(5, Seconds), interval = Span(5, Millis))
   implicit val classicSystem = testKit.system.toClassic
 
-  val log = LoggerFactory.getLogger(classOf[SpannerLifecycle])
+  private val capturingAppender = CapturingAppender.get("")
+  private val log = LoggerFactory.getLogger(classOf[SpannerLifecycle])
 
   private val pidCounter = new AtomicLong(0)
   def nextPid = s"p-${pidCounter.incrementAndGet()}"
@@ -254,9 +256,18 @@ trait SpannerLifecycle
   }
 
   override protected def withFixture(test: NoArgTest): Outcome = {
+    log.info(s"Logging started for test [${self.getClass.getName}: ${test.name}]")
     val res = test()
+    log.info(s"Logging finished for test [${self.getClass.getName}: ${test.name}] that [$res]")
     if (!(res.isSucceeded || res.isPending)) {
       failed = true
+      println(
+        s"--> [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] Start of log messages of test that [$res]"
+      )
+      capturingAppender.flush()
+      println(
+        s"<-- [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] End of log messages of test that [$res]"
+      )
     }
     res
   }
