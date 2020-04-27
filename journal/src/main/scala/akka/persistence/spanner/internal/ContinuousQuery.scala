@@ -138,10 +138,11 @@ final private[spanner] class ContinuousQuery[S, T](
             nextRow = OptionVal.none[T]
             if (subStreamFinished) {
               next()
-            }
-            log.info("I should really pull shouldn't i? {} {}", sinkIn.hasBeenPulled, sinkIn.isClosed)
-            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled) {
-              log.info("should have pulled")
+            } else {
+              log.info("I should really pull shouldn't i? {} {}", sinkIn.hasBeenPulled, sinkIn.isClosed)
+              if (!sinkIn.isClosed && !sinkIn.hasBeenPulled) {
+                log.info("should have pulled")
+              }
             }
           case OptionVal.None =>
             if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled)
