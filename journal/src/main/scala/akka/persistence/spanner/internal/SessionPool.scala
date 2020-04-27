@@ -86,7 +86,7 @@ private[spanner] object SessionPool {
               ctx.log.debug("Sessions created [{}]", sessions)
               timers.startTimerWithFixedDelay(KeepAlive, settings.sessionPool.keepAliveInterval)
               // FIXME Make configurable https://github.com/akka/akka-persistence-spanner/issues/42
-              timers.startTimerWithFixedDelay(Stats, 3.second)
+              timers.startTimerWithFixedDelay(Stats, 1.second)
               stash.unstashAll(new SessionPool(client, sessions, ctx, timers, stash, settings.sessionPool))
             case RetrySessionCreation(when) =>
               if (when == Duration.Zero) {
@@ -131,13 +131,14 @@ private[spanner] final class SessionPool(
 
   override def onMessage(msg: Command): Behavior[Command] = msg match {
     case gt @ GetSession(replyTo, id) =>
-      if (log.isDebugEnabled()) {
-        log.debugN(
-          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}]",
+      if (log.isTraceEnabled()) {
+        log.traceN(
+          "GetSession [{}] from [{}], inUseSessions [{}], availableSessions [{}] stashed [{}]",
           id,
           replyTo,
           inUseSessions.mkString(", "),
-          availableSessions.map(a => (a.session.name, a.lastUsed)).mkString(", ")
+          availableSessions.map(a => (a.session.name, a.lastUsed)).mkString(", "),
+          stash.size
         )
       }
       if (availableSessions.nonEmpty) {
@@ -149,12 +150,13 @@ private[spanner] final class SessionPool(
           ctx.log.warn("Session pool request stash full, denying request for pool")
           replyTo ! PoolBusy(id)
         } else {
+          ctx.log.debug("Stashing request {}", id)
           stash.stash(gt)
         }
       }
       this
     case ReleaseSession(id) =>
-      log.debug("ReleaseSession {}", id)
+      log.trace("ReleaseSession {} stash size {}", id, stash.size)
       uses += 1
       if (inUseSessions.contains(id)) {
         val session = inUseSessions(id)
@@ -183,7 +185,7 @@ private[spanner] final class SessionPool(
       }
 
       if (toKeepAlive.nonEmpty) {
-        if (log.isInfoEnabled) {
+        if (log.isDebugEnabled) {
           log.debugN(
             "The following sessions haven't been used in the last {}. Sending keep alive. [{}]",
             settings.keepAliveInterval.pretty,
@@ -219,17 +221,18 @@ private[spanner] final class SessionPool(
     case Stats =>
       // improve this in https://github.com/akka/akka-persistence-spanner/issues/51
       log.infoN(
-        "in use {}. available {}. used since last stats: {}. Ids {}",
+        "in use {}. available {}. used since last stats: {}. Ids {}. Stash size {}",
         inUseSessions.size,
         availableSessions.size,
         uses,
-        inUseSessions.keys
+        inUseSessions.keys,
+        stash.size
       )
       uses = 0
       this
 
     case other =>
-      log.error("Unexpected message in active state {}", other)
+      log.error("Unexpected message in active state [{}]", other.getClass)
       this
   }
 

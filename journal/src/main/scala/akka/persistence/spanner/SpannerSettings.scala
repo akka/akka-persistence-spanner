@@ -46,12 +46,13 @@ private[spanner] final class SpannerSettings(config: Config) {
   val parent = s"$fullyQualifiedProject/instances/$instance"
   val fullyQualifiedDatabase = s"$parent/databases/$database"
   val useAuth = config.getBoolean("use-auth")
-  val table = config.getString("table")
-  val deletionsTable = config.getString("deletions-table")
+  val journalTable = config.getString("journal.table")
+  val deletionsTable = config.getString("journal.deletions-table")
   val grpcClient = config.getString("grpc-client")
   val maxWriteRetries = config.getInt("max-write-retries")
   val maxWriteRetryTimeout = config.getDuration("max-write-retry-timeout").asScala
 
+  val snapshotsTable = config.getString("snapshot.table")
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))
   val sessionAcquisitionTimeout = config.getDuration("session-acquisition-timeout").asScala
 

@@ -29,6 +29,7 @@ private[spanner] object ContinuousQuery {
     Source.fromGraph(new ContinuousQuery[S, T](initialState, updateState, nextQuery, threshold, refreshInterval))
 
   private case object NextQuery
+  private case object Status
 }
 
 /**
@@ -64,11 +65,20 @@ final private[spanner] class ContinuousQuery[S, T](
       def pushAndUpdateState(t: T) = {
         state = updateState(state, t)
         nrElements += 1
+        log.debug("pushing {}", t)
         push(out, t)
       }
 
       override protected def onTimer(timerKey: Any): Unit = timerKey match {
         case NextQuery => next()
+        case ContinuousQuery.Status =>
+          log.info(
+            "Status: has been pulled? {}. subStreamFinished {}. innerSink has been pulled? {}, inner sink closed {}",
+            isAvailable(out),
+            subStreamFinished,
+            sinkIn.hasBeenPulled,
+            sinkIn.isClosed
+          )
       }
 
       def next(): Unit =
@@ -86,23 +96,28 @@ final private[spanner] class ContinuousQuery[S, T](
             case Some(source) =>
               sinkIn = new SubSinkInlet[T]("Inner")
               sinkIn.setHandler(new InHandler {
-                override def onPush(): Unit =
+                override def onPush(): Unit = {
+                  log.debug("onPush inner")
                   if (isAvailable(out)) {
                     if (!nextRow.isEmpty) {
                       throw new RuntimeException(s"onPush called when we already have: " + nextRow)
                     }
-                    pushAndUpdateState(sinkIn.grab())
+                    val element = sinkIn.grab()
+                    log.debug("onPush inner pushing right away {}", element)
+                    pushAndUpdateState(element)
                     sinkIn.pull()
                   } else {
                     if (!nextRow.isEmpty) {
                       throw new RuntimeException(s"onPush called when we already have: " + nextRow)
                     }
+                    log.debug("onPush inner buffering element, not pulling until it is taken")
                     nextRow = OptionVal(sinkIn.grab())
                   }
+                }
 
                 override def onUpstreamFinish(): Unit =
                   if (nextRow.isDefined) {
-                    log.debug("Stream finished. Not creating next as a buffered element")
+                    log.debug("Stream finished. Not creating next as a buffered element: {}", nextRow)
                     // wait for the element to be pulled
                     subStreamFinished = true
                   } else {
@@ -121,8 +136,10 @@ final private[spanner] class ContinuousQuery[S, T](
           }
         }
 
-      override def preStart(): Unit =
+      override def preStart(): Unit = {
+        scheduleAtFixedRate(ContinuousQuery.Status, 400.millis, 400.millis)
         next()
+      }
 
       override def onPull(): Unit = {
         log.debug("onPull. Buffered row: {}", nextRow)
@@ -132,10 +149,17 @@ final private[spanner] class ContinuousQuery[S, T](
             nextRow = OptionVal.none[T]
             if (subStreamFinished) {
               next()
+            } else {
+              log.info("I should really pull shouldn't i? {} {}", sinkIn.hasBeenPulled, sinkIn.isClosed)
+              if (!sinkIn.isClosed && !sinkIn.hasBeenPulled) {
+                log.info("should have pulled")
+              }
             }
           case OptionVal.None =>
-            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled)
+            if (!subStreamFinished && !sinkIn.isClosed && !sinkIn.hasBeenPulled) {
+              log.debug("onPull and no element, pulling")
               sinkIn.pull()
+            }
         }
       }
 
