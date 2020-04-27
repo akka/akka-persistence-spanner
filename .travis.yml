@@ -47,7 +47,9 @@ jobs:
     - env:
       - JDK="adopt@~1.8-0"
       - CMD=";+publish"
-      name: "Publish release"
+     name: "Publish release"
+   - script: eval "$(ssh-agent -s)" && cp .travis/id_rsa /tmp/id_rsa && chmod 600 /tmp/id_rsa && ssh-keygen -p -P "$DEPLOY_PASSPHRASE" -N "" -f /tmp/id_rsa && ssh-add /tmp/id_rsa && sbt -jvm-opts .jvmopts-travis docs/publishRsync
+     name: "Publish documentation"
 
 stages:
   # runs on master commits and PRs
@@ -61,7 +63,7 @@ stages:
   - name: whitesource
     if: repo = akka/akka-persistence-spanner AND ( ( branch = master AND type = push ) OR tag =~ ^v )
 
-  # runs on main repo master commits and version-tagged commits
+  # runs on version-tagged commits
   - name: publish
     if: repo = akka/akka-persistence-spanner AND tag =~ ^v
 
@@ -83,3 +85,6 @@ env:
   - secure: Yd57zQbQIYT1ukLPcx6w1dAChY//aoiz+2YCWr82Ba+kYhg25xAJFJw8N4vWnLueX8raPtJp6X8j2ASS3yCUDUS3/mgwYkRZ95cyL0mmHreOCFAg4IoMpPHFhwOP9KLHbvNiU3e0BbWDoySmjnXv/0NlGmh+KEQOVhq1eR1OsL1kUeq726wJHQM4Anv/LNY1PE2nLcPck/V4njhdxfrYpVSVKsrBumbfc38xClpdWjVBLI/FYzNvPykkwzuJ6sXivstgNNiKMOAcklhB+e4Uch9eTx8YXdZcaFwnY8tFM1x+R2+TiKGS2KOlpBmL4dWPCxQUYAXCkH5a26NB0RxZ/JzkgwG18gWm8jLSZYJpbARdQotTmoN7c0rnZvKMKD9CD/3zxuPxobgMp1ZILGpMEfP5n1pTB+CTbO3MSYMVi0Khhzq0WHmHcjqg/qPrbfhuo1kppWl3EJG20KLH6NyE6ztnMukdjYBouHTTpplfWgaB0ZTOGcn8uStJveZNGmBBYx1KjDaNm2u+ZnP3hImQJT40swMn6rt6tZNDFPJkWrgg308mp9E880MZISeKnibY8m7UEBLz/S9dT01Exn9Ty49tb23NUnS/39w7Xvk8hAFPdFrZ5c+2VKFyV1n5C7cicxqNOH4N3GKf1p80NBfw1NOKxkMS6kKkwbTQD4YV+nM=
   # encrypt with: travis encrypt WHITESOURCE_PASSWORD=... --pro
   - secure: PrKzW1BsJYi/dp28jq5ICy85MMLHOBkH97A9ElSCTh7I3CMfdoYx3Zq1jSdj56GBmlrV0RLSQDPrzPUEydGuGTLMl6AiE6FxXaW+y5XcbpVYthW/gVnAXsbkqqpS9AErxdMH3i6lowBfimVeRQ+PX/6qc0dKHjSzICy4KwkhNmvRqidLKO7wyFOR3wr9oi8x+t9uxU0Jbi58jszsf4Qbt7YfijPVVFRNvqGNlrY5gH2pBEaTzFXG1/3eli5OUEuZkCMIbUt6kQMKd5Hx6+vh5AHldBSdxLk/NuhIoNQzmjIHs7Rlgj0XtEVk5bcHwmN8bQZA4NHrpdP8K81AHhFNP7ZkpwXohMG6aB00V1CTnfgLbtmMdNODIuduK84w8TkDaVY9OWzRBeQyYj+6ql1wfnI2wVSO+GQhVWF/gPJJXD/ZDJo9HJJJ1xQ4szvrAy+aCG/F5rnOrYPmASpxabLQTmfBiD9VgG3x37gaX6+5OtJ2XIb6z0LEz0ZgzLqYpc8SCoxSbGCzj61CWmxshpdDGWUFqPZK7nBuK8LN+Ts7SdZJBEGCmhuojTP4+879bgORcwrMbmSqcXae23LTr+cT5vcd4W9fD8uIwNNQo4Jee6zEkKKCoq2zq7RojvXpuedwNP69QYpIiU07zK5sWVs0g1wC9esK2MOPh+STrEGplLQ=
+  # encrypt with: travis encrypt DEPLOY_PASSPHRASE=... --pro
+  - secure: "jiIogzGR4tRWLastZFdooQofYi6kmPCnMw9FTBsIaL3ZNda+/dUEEMD4NlwGd/SsICUnn/Xo338RnjNutVul3A49h0Zh9gC4BANynvJQyeoU/LDVRJbUI5mrmy81HwqE1180KXmbGtO+IwuWbEkD/xX0jdPUlc55DJ9DaEUUTRMb1BMZkmm91NHImPGMT9yqamdjzOm0nfMDps5ZLF9S1nUQpCuUezyC8UDshdMv/W2/cpaZdi1x9mFFbaHm+TPsE0jte2942AMeFd1zvBP0QqDeawgjgg9uFj2OW3QGrOpMv8uAMuCGPcH+fGFb9hxU2LaYMxGQLCh3ivGNy2oPRKOkYnEX3vGcTnxqIgIV1HtQdJ+vGjadh+laCC2C95MdvgWuw+Ry4+t2dOx5vZxVAxQuCweyjC7SuqKbMBYY/v4vBRs5jNh/2ll5F8h4krjALzKiepRwEDncw8lqfBH804IEame5KCAv19s6LXn/sE/rjVJuuDRQyF0TtCeFoIiceRs2EE6jiTCNIBjrN3D4JUacWa++eFHJ4skmI6WLkT1UZaH85j597TI92r5fqEkugtKUSgMOYEUcgE1t+LDOqsIWn144pDG7mZLBI+GOeTT2iY70Vk4atSY0gzf1gXDNQoD2idAUEjOxWpnbon5PlCEpaKC+ZY2fSBw7DQUbfC0="
+
