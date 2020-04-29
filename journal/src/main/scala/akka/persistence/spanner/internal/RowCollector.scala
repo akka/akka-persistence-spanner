@@ -57,9 +57,7 @@ import com.google.spanner.v1.PartialResultSet
           incompleteRow match {
             case OptionVal.None =>
               val rows = currentSet.values.grouped(columnsPerRow).toSeq
-              log.debug("rows: {}", rows)
               if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
-                log.debug("emitting multiple")
                 emitMultiple(out, rows.iterator)
               } else {
                 // first part of chunk or rows split across to the next set
@@ -67,10 +65,8 @@ import com.google.spanner.v1.PartialResultSet
                 incompleteRow = OptionVal.Some(rows.last)
                 val initial = rows.init
                 if (initial.nonEmpty) {
-                  log.debug("emitting initial ")
                   emitMultiple(out, initial.iterator)
                 } else {
-                  log.debug("emitting nothing")
                   pull(in)
                 }
               }
