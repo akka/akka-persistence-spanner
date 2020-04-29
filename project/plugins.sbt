@@ -7,7 +7,7 @@ addSbtPlugin("org.scalameta" % "sbt-scalafmt" % "2.2.1")
 addSbtPlugin("com.lightbend.sbt" % "sbt-java-formatter" % "0.4.4")
 
 //// whitesource for tracking licenses and vulnerabilities in dependencies
-//addSbtPlugin("com.lightbend" % "sbt-whitesource" % "0.1.18")
+addSbtPlugin("com.lightbend" % "sbt-whitesource" % "0.1.18")
 
 // for releasing
 addSbtPlugin("com.dwijnand" % "sbt-dynver" % "4.0.0")

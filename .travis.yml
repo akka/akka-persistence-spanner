@@ -42,6 +42,9 @@ jobs:
       - JDK="adopt@~1.11-0"
       - CMD=";testOnly *EventsByTagSpec"
       name: "Run tests (AdoptOpenJDK 11)"
+    - script: jabba use adopt@~1.11-0 && java -version && ./docker/setup_emulator && ./testLatestAkkaSnapshot.sh
+      name: "Run tests with Akka snapshot"
+      if: type = cron
 
     - stage: publish
     - env:
@@ -77,7 +80,9 @@ cache:
 
 env:
   global:
-  # encrypt with: travis encrypt BINTRAY_USER=...
+  # encrypt with: travis encrypt BINTRAY_USER=... --pro
   - secure: 3YFYvsn3F0hemjV3qqLYxKTZhZn8ODAwNFJwwJ5awV+ChvBgMx0JCMNQRRE1wkYJfpQLt3Mrn+DdhC0jD8gCaoq5TkCo5yyV+vJQdvscAgzpGIh9Gm/6bdfNDnNftID6nIePXbSCrbvRNp+xcaTmQRGqVQozg/vmPVHFcOJ4pWfi6f6giDpj4kT1iQLRb+VxP7kp2Qw0vlK8arq5ciRvXZJidDJVn4/btwf2ytYIEuB5JWxEi072vesnBQwvXaxC92tPDlHYNG/sKo8lo2sxDNOfQy+9oUWUf2tBdbF9ttpx2xCCe1cYifmUq5U4V4xrZAm5QfG9WcT9dlLWyZFw4ICm9dK5GMm8+hG+2S/hJud/rZigtN3Xl5YZeB45RWrUAf+4EBaKneJwXFfZq7Q29NETRc9juOIhaX54n6PZ0KaOAV8hs2qYc058qwiF+BnuHvAKYCDLjzGV6nB+26JJl8HtCcWf3JIjuWHlxobWkgQjThEQ7JQwjPaRjNPsO7WPX3Eigj/0P6Cu4PP61cTPsHPDrVmmQysaSHX+Q88MNdAGiMyM8cnk1NeEByc+W+limTq/fVXx1utIEZfnVgGFw8nq9KKBmKXxhod92Gg7T77T5gF5zd9C2X1TkX5PWuHiDpEde2E65fHufCsg2fjAIzFS0dawK32GhIntVX88YqY=
-  # encrypt with: travis encrypt BINTRAY_PASS=...
+  # encrypt with: travis encrypt BINTRAY_PASS=... --pro
   - secure: Yd57zQbQIYT1ukLPcx6w1dAChY//aoiz+2YCWr82Ba+kYhg25xAJFJw8N4vWnLueX8raPtJp6X8j2ASS3yCUDUS3/mgwYkRZ95cyL0mmHreOCFAg4IoMpPHFhwOP9KLHbvNiU3e0BbWDoySmjnXv/0NlGmh+KEQOVhq1eR1OsL1kUeq726wJHQM4Anv/LNY1PE2nLcPck/V4njhdxfrYpVSVKsrBumbfc38xClpdWjVBLI/FYzNvPykkwzuJ6sXivstgNNiKMOAcklhB+e4Uch9eTx8YXdZcaFwnY8tFM1x+R2+TiKGS2KOlpBmL4dWPCxQUYAXCkH5a26NB0RxZ/JzkgwG18gWm8jLSZYJpbARdQotTmoN7c0rnZvKMKD9CD/3zxuPxobgMp1ZILGpMEfP5n1pTB+CTbO3MSYMVi0Khhzq0WHmHcjqg/qPrbfhuo1kppWl3EJG20KLH6NyE6ztnMukdjYBouHTTpplfWgaB0ZTOGcn8uStJveZNGmBBYx1KjDaNm2u+ZnP3hImQJT40swMn6rt6tZNDFPJkWrgg308mp9E880MZISeKnibY8m7UEBLz/S9dT01Exn9Ty49tb23NUnS/39w7Xvk8hAFPdFrZ5c+2VKFyV1n5C7cicxqNOH4N3GKf1p80NBfw1NOKxkMS6kKkwbTQD4YV+nM=
+  # encrypt with: travis encrypt WHITESOURCE_PASSWORD=... --pro
+  - secure: PrKzW1BsJYi/dp28jq5ICy85MMLHOBkH97A9ElSCTh7I3CMfdoYx3Zq1jSdj56GBmlrV0RLSQDPrzPUEydGuGTLMl6AiE6FxXaW+y5XcbpVYthW/gVnAXsbkqqpS9AErxdMH3i6lowBfimVeRQ+PX/6qc0dKHjSzICy4KwkhNmvRqidLKO7wyFOR3wr9oi8x+t9uxU0Jbi58jszsf4Qbt7YfijPVVFRNvqGNlrY5gH2pBEaTzFXG1/3eli5OUEuZkCMIbUt6kQMKd5Hx6+vh5AHldBSdxLk/NuhIoNQzmjIHs7Rlgj0XtEVk5bcHwmN8bQZA4NHrpdP8K81AHhFNP7ZkpwXohMG6aB00V1CTnfgLbtmMdNODIuduK84w8TkDaVY9OWzRBeQyYj+6ql1wfnI2wVSO+GQhVWF/gPJJXD/ZDJo9HJJJ1xQ4szvrAy+aCG/F5rnOrYPmASpxabLQTmfBiD9VgG3x37gaX6+5OtJ2XIb6z0LEz0ZgzLqYpc8SCoxSbGCzj61CWmxshpdDGWUFqPZK7nBuK8LN+Ts7SdZJBEGCmhuojTP4+879bgORcwrMbmSqcXae23LTr+cT5vcd4W9fD8uIwNNQo4Jee6zEkKKCoq2zq7RojvXpuedwNP69QYpIiU07zK5sWVs0g1wC9esK2MOPh+STrEGplLQ=

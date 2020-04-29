@@ -94,13 +94,13 @@ final private[spanner] class ContinuousQuery[S, T](
           log.debug("Next source {}. Current state {} {}", source, nextRow, state)
           source match {
             case Some(source) =>
-              sinkIn = new SubSinkInlet[T]("Inner")
+              sinkIn = new SubSinkInlet[T]("Yep")
               sinkIn.setHandler(new InHandler {
                 override def onPush(): Unit = {
                   log.debug("onPush inner")
                   if (isAvailable(out)) {
                     if (!nextRow.isEmpty) {
-                      throw new RuntimeException(s"onPush called when we already have: " + nextRow)
+                      throw new IllegalStateException(s"onPush called when we already have: " + nextRow)
                     }
                     val element = sinkIn.grab()
                     log.debug("onPush inner pushing right away {}", element)
@@ -108,7 +108,7 @@ final private[spanner] class ContinuousQuery[S, T](
                     sinkIn.pull()
                   } else {
                     if (!nextRow.isEmpty) {
-                      throw new RuntimeException(s"onPush called when we already have: " + nextRow)
+                      throw new IllegalStateException(s"onPush called when we already have: " + nextRow)
                     }
                     log.debug("onPush inner buffering element, not pulling until it is taken")
                     nextRow = OptionVal(sinkIn.grab())
@@ -150,9 +150,9 @@ final private[spanner] class ContinuousQuery[S, T](
             if (subStreamFinished) {
               next()
             } else {
-              log.info("I should really pull shouldn't i? {} {}", sinkIn.hasBeenPulled, sinkIn.isClosed)
+              log.debug("onPull {} {}", sinkIn.hasBeenPulled, sinkIn.isClosed)
               if (!sinkIn.isClosed && !sinkIn.hasBeenPulled) {
-                log.info("should have pulled")
+                sinkIn.pull()
               }
             }
           case OptionVal.None =>

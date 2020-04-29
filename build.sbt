@@ -59,7 +59,7 @@ def common: Seq[Setting[_]] = Seq(
 
 lazy val dontPublish = Seq(
   skip in publish := true,
-//  whitesourceIgnore := true,
+  whitesourceIgnore := true,
   publishArtifact in Compile := false
 )
 
@@ -70,7 +70,10 @@ lazy val root = (project in file("."))
     name := "akka-persistence-spanner-root",
     publishTo := Some(Resolver.file("Unused transient repository", file("target/unusedrepo")))
   )
-  .aggregate(docs, journal)
+  .aggregate(journal)
+
+lazy val dumpSchema = taskKey[Unit]("Dumps schema for docs")
+dumpSchema := (journal / runMain in (Test)).toTask(" akka.persistence.spanner.PrintSchema").value
 
 lazy val journal = (project in file("journal"))
   .enablePlugins(AkkaGrpcPlugin)
@@ -83,10 +86,12 @@ lazy val journal = (project in file("journal"))
 lazy val docs = project
   .in(file("docs"))
   .enablePlugins(AkkaParadoxPlugin, ParadoxSitePlugin, PublishRsyncPlugin)
+  .dependsOn(journal)
   .settings(common)
   .settings(dontPublish)
   .settings(
     name := "Akka Persistence Spanner",
+    (Compile / paradox) := (Compile / paradox).dependsOn(root / dumpSchema).value,
     crossScalaVersions := Seq(Dependencies.Scala212),
     previewPath := (Paradox / siteSubdirName).value,
     Paradox / siteSubdirName := s"docs/akka-persistence-spanner/${projectInfoVersion.value}",

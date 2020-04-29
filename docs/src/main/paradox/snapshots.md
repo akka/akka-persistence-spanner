@@ -18,16 +18,7 @@ See [reference.conf](https://github.com/akka/akka-persistence-spanner/blob/maste
 
 The plugin will need a table defined like this:
 
-```
-CREATE TABLE snapshots (
-  persistence_id STRING(MAX) NOT NULL,
-  sequence_nr INT64 NOT NULL,
-  timestamp TIMESTAMP NOT NULL,
-  ser_id INT64 NOT NULL,
-  ser_manifest STRING(MAX) NOT NULL,
-  snapshot BYTES(MAX)
-) PRIMARY KEY (persistence_id, sequence_nr) 
-``` 
+@@snip [snapshot-tables](/target/snapshot-tables.txt) { #snapshot-tables } 
 
 ## Usage
 

@@ -28,7 +28,6 @@ import com.google.protobuf.struct.{Struct, Value}
 import com.google.spanner.v1.{Type, TypeCode}
 import com.typesafe.config.Config
 import org.slf4j.LoggerFactory
-
 import scala.collection.immutable
 
 object SpannerReadJournal {
@@ -62,7 +61,7 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   private val PersistenceIdsQuery =
     s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
 
-  private val EventsForPersisnteceIdSql =
+  private val EventsForPersistenceIdSql =
     s"SELECT ${Schema.Journal.Columns.mkString(",")} FROM ${settings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
 
   override def currentEventsByTag(tag: String, offset: Offset): scaladsl.Source[EventEnvelope, NotUsed] = {
@@ -167,7 +166,7 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
     log.infoN("currentEventsByPersistenceId {} {} {}", persistenceId, fromSequenceNr, toSequenceNr)
     grpcClient
       .streamingQuery(
-        EventsForPersisnteceIdSql,
+        EventsForPersistenceIdSql,
         params = Some(
           Struct(
             fields = Map(

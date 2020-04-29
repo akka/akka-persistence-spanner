@@ -1,5 +1,10 @@
 # Journal plugin
 
+## Schema
+
+The following tables need to be created in the configured database:
+
+@@snip [journal-tables](/target/journal-tables.txt) { #journal-tables } 
 
 ## Configuration
 

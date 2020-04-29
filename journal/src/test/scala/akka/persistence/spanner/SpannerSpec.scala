@@ -114,9 +114,8 @@ object SpannerSpec {
       }
      """)
 
-  val journalTable =
-    """
-  CREATE TABLE journal (
+  def journalTable(settings: SpannerSettings): String =
+    s"""CREATE TABLE ${settings.journalTable} (
         persistence_id STRING(MAX) NOT NULL,
         sequence_nr INT64 NOT NULL,
         event BYTES(MAX),
@@ -126,19 +125,18 @@ object SpannerSpec {
         write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
         writer_uuid STRING(MAX) NOT NULL,
 ) PRIMARY KEY (persistence_id, sequence_nr)
-  """
+"""
 
-  val deleteMetadataTable =
-    """
-    CREATE TABLE deletions (
-        persistence_id STRING(MAX) NOT NULL,
-        deleted_to INT64 NOT NULL,
-      ) PRIMARY KEY (persistence_id)
-  """
+  def deleteMetadataTable(settings: SpannerSettings): String =
+    s"""CREATE TABLE ${settings.deletionsTable} (
+    persistence_id STRING(MAX) NOT NULL,
+    deleted_to INT64 NOT NULL,
+) PRIMARY KEY (persistence_id)
+"""
 
-  val snapshotTable =
-    """
-    CREATE TABLE snapshots (
+  def snapshotTable(settings: SpannerSettings): String =
+    s"""
+    CREATE TABLE ${settings.snapshotsTable} (
       persistence_id STRING(MAX) NOT NULL,
       sequence_nr INT64 NOT NULL,
       timestamp TIMESTAMP NOT NULL,
@@ -235,10 +233,10 @@ trait SpannerLifecycle
         CreateDatabaseRequest(
           parent = spannerSettings.parent,
           s"CREATE DATABASE ${spannerSettings.database}",
-          SpannerSpec.journalTable ::
-          SpannerSpec.deleteMetadataTable ::
+          SpannerSpec.journalTable(spannerSettings) ::
+          SpannerSpec.deleteMetadataTable(spannerSettings) ::
           (if (withSnapshotStore)
-             SpannerSpec.snapshotTable :: Nil
+             SpannerSpec.snapshotTable(spannerSettings) :: Nil
            else Nil)
         )
       )

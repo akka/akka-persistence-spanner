@@ -13,7 +13,6 @@ import akka.annotation.InternalApi
 import akka.event.Logging
 import akka.persistence.PersistentRepr
 import akka.persistence.spanner.internal.SessionPool.PooledSession
-import akka.persistence.spanner.internal.SpannerGrpcClient
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SpannerJournalInteractions.SerializedWrite
 import akka.serialization.Serialization

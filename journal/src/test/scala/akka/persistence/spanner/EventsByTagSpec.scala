@@ -4,6 +4,7 @@
 
 package akka.persistence.spanner
 
+import akka.actor.testkit.typed.scaladsl.LogCapturing
 import akka.{Done, NotUsed}
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset, PersistenceQuery}
 import akka.persistence.spanner.EventsByTagSpec.{Current, Live, QueryType}
