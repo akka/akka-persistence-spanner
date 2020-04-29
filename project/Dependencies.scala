@@ -8,7 +8,7 @@ object Dependencies {
   val Scala212 = "2.12.11"
   val Scala213 = "2.13.1"
 
-  val AkkaVersion = "2.6.4"
+  val AkkaVersion = System.getProperty("override.akka.version", "2.6.4")
 
   val SpannerVersion = "1.52.0"
   // Keep in sync with Akka gRPC
@@ -33,6 +33,7 @@ object Dependencies {
     val akkaPersistenceTck = "com.typesafe.akka" %% "akka-persistence-tck" % AkkaVersion % Test
     val akkaTestkit = "com.typesafe.akka" %% "akka-actor-testkit-typed" % AkkaVersion % Test
     val akkaStreamTestkit = "com.typesafe.akka" %% "akka-stream-testkit" % AkkaVersion % Test
+    val akkaJackson = "com.typesafe.akka" %% "akka-serialization-jackson" % AkkaVersion % Test
 
     val logback = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test // EPL 1.0 / LGPL 2.1
     val scalaTest = "org.scalatest" %% "scalatest" % "3.1.1" % Test // ApacheV2
@@ -55,6 +56,7 @@ object Dependencies {
     grpcAuth,
     googleAuth,
     akkaTestkit,
+    akkaJackson,
     logback,
     scalaTest
   )

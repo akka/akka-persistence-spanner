@@ -58,16 +58,20 @@ import com.google.spanner.v1.PartialResultSet
             case OptionVal.None =>
               val rows = currentSet.values.grouped(columnsPerRow).toSeq
               if (rows.last.size == columnsPerRow && !currentSet.chunkedValue) {
+                log.debug("emitting multiple")
                 emitMultiple(out, rows.iterator)
               } else {
                 // first part of chunk or rows split across to the next set
                 incompleteChunked = currentSet.chunkedValue
                 incompleteRow = OptionVal.Some(rows.last)
                 val initial = rows.init
-                if (initial.nonEmpty)
+                if (initial.nonEmpty) {
+                  log.debug("emitting initial ")
                   emitMultiple(out, initial.iterator)
-                else
+                } else {
+                  log.debug("emitting nothing")
                   pull(in)
+                }
               }
 
             case OptionVal.Some(incomplete) =>

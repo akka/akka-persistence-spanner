@@ -1,3 +1,5 @@
+import sbt.Keys.parallelExecution
+
 inThisBuild(
   Seq(
     scalaVersion := "2.13.1",
@@ -18,7 +20,9 @@ inThisBuild(
         url("https://github.com/akka/akka-persistence-spanner/graphs/contributors")
       ),
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
-    description := "A replicated Akka Persistence journal backed by Spanner"
+    description := "A replicated Akka Persistence journal backed by Spanner",
+    // due to the emulator
+    parallelExecution := false
   )
 )
 

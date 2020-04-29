@@ -4,10 +4,12 @@
 
 package akka.persistence.spanner
 
-import akka.actor.ActorSystem
-import akka.event.Logging
+import java.util.concurrent.atomic.AtomicLong
+
+import akka.actor.testkit.typed.internal.CapturingAppender
+import akka.actor.testkit.typed.scaladsl.{ActorTestKit}
+import akka.actor.typed.scaladsl.adapter._
 import akka.grpc.GrpcClientSettings
-import akka.testkit.{TestKit, TestKitBase}
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.protobuf.struct.ListValue
 import com.google.protobuf.struct.Value.Kind
@@ -21,17 +23,18 @@ import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdmi
 import com.google.spanner.v1.{CreateSessionRequest, DeleteSessionRequest, ExecuteSqlRequest, SpannerClient}
 import com.typesafe.config.{Config, ConfigFactory}
 import io.grpc.Status.Code
-import io.grpc.{Status, StatusRuntimeException}
+import io.grpc.StatusRuntimeException
 import io.grpc.auth.MoreCallCredentials
-import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.concurrent.{Eventually, ScalaFutures}
 import org.scalatest.exceptions.TestFailedException
 import org.scalatest.matchers.should.Matchers
 import org.scalatest.time.{Millis, Seconds, Span}
 import org.scalatest.wordspec.AnyWordSpecLike
 import org.scalatest.{BeforeAndAfterAll, Outcome, Suite}
+import org.slf4j.LoggerFactory
 
-import scala.concurrent.{Await, ExecutionContext, Future}
 import scala.concurrent.duration._
+import scala.concurrent.{Await, ExecutionContext, Future}
 
 object SpannerSpec {
   private var instanceCreated = false
@@ -67,6 +70,12 @@ object SpannerSpec {
 
   def config(databaseName: String): Config = {
     val c = ConfigFactory.parseString(s"""
+      akka.loglevel = DEBUG
+      akka.actor {
+        serialization-bindings {
+          "akka.persistence.spanner.CborSerializable" = jackson-cbor 
+        }
+      }
       akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
       akka.test.timefactor = 2
       # allow java serialization when testing
@@ -79,6 +88,10 @@ object SpannerSpec {
         project = akka-team
       }
       #instance-config
+      
+      query {
+        refresh-interval = 500ms
+      }
        """)
     if (realSpanner) {
       println("running with real spanner")
@@ -137,19 +150,31 @@ object SpannerSpec {
 }
 
 trait SpannerLifecycle
-    extends TestKitBase
-    with Suite
+    extends Suite
     with BeforeAndAfterAll
     with AnyWordSpecLike
     with ScalaFutures
-    with Matchers {
+    with Matchers
+    with Eventually { self =>
   def databaseName: String
+  def shouldDumpRows: Boolean = true
 
-  implicit val ec = system.dispatcher
+  lazy val testKit = ActorTestKit(SpannerSpec.config(databaseName))
+
+  implicit val ec = testKit.system.executionContext
   implicit val defaultPatience = PatienceConfig(timeout = Span(5, Seconds), interval = Span(5, Millis))
+  implicit val classicSystem = testKit.system.toClassic
 
-  val log = Logging(system, classOf[SpannerSpec])
-  val spannerSettings = new SpannerSettings(system.settings.config.getConfig("akka.persistence.spanner"))
+  private val capturingAppender = CapturingAppender.get("")
+  private val log = LoggerFactory.getLogger(classOf[SpannerLifecycle])
+
+  private val pidCounter = new AtomicLong(0)
+  def nextPid = s"p-${pidCounter.incrementAndGet()}"
+
+  private val tagCounter = new AtomicLong(0)
+  def nextTag = s"tag-${tagCounter.incrementAndGet()}"
+
+  val spannerSettings = new SpannerSettings(testKit.system.settings.config.getConfig("akka.persistence.spanner"))
   val grpcSettings: GrpcClientSettings = if (spannerSettings.useAuth) {
     GrpcClientSettings
       .fromConfig("spanner-client")
@@ -158,7 +183,8 @@ trait SpannerLifecycle
           GoogleCredentials
             .getApplicationDefault()
             .createScoped(
-              "https://www.googleapis.com/auth/spanner.admin"
+              "https://www.googleapis.com/auth/spanner.admin",
+              "https://www.googleapis.com/auth/spanner.data"
             )
         )
       )
@@ -190,16 +216,13 @@ trait SpannerLifecycle
         // there is a db already, drop it to make sure we don't leak db contents from previous run
         log.info("Dropping pre-existing database {}", spannerSettings.fullyQualifiedDatabase)
         adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
-        awaitAssert(
-          {
-            val fail = adminClient
-              .getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
-              .failed
-              .futureValue
-            databaseNotFound(fail) should ===(true)
-          },
-          20.seconds
-        )
+        eventually {
+          val fail = adminClient
+            .getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
+            .failed
+            .futureValue
+          databaseNotFound(fail) should ===(true)
+        }
       }
     } catch {
       case te: TestFailedException if te.cause.exists(databaseNotFound) =>
@@ -220,26 +243,35 @@ trait SpannerLifecycle
         )
       )
     // wait for db to be ready before testing
-    awaitAssert({
+    eventually {
       adminClient
         .getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
         .futureValue
         .state
         .isReady should ===(true)
-    }, 20.seconds)
+    }
     log.info("Database ready {}", spannerSettings.database)
   }
 
   override protected def withFixture(test: NoArgTest): Outcome = {
+    log.info(s"Logging started for test [${self.getClass.getName}: ${test.name}]")
     val res = test()
+    log.info(s"Logging finished for test [${self.getClass.getName}: ${test.name}] that [$res]")
     if (!(res.isSucceeded || res.isPending)) {
       failed = true
+      println(
+        s"--> [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] Start of log messages of test that [$res]"
+      )
+      capturingAppender.flush()
+      println(
+        s"<-- [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] End of log messages of test that [$res]"
+      )
     }
     res
   }
 
   def cleanup(): Unit = {
-    if (failed) {
+    if (failed && shouldDumpRows) {
       log.info("Test failed. Dumping rows")
       val rows = for {
         session <- spannerClient.createSession(CreateSessionRequest(spannerSettings.fullyQualifiedDatabase))
@@ -300,8 +332,8 @@ trait SpannerLifecycle
     try {
       cleanup()
     } finally {
-      TestKit.shutdownActorSystem(system)
       super.afterAll()
+      testKit.shutdownTestKit()
     }
 }
 
@@ -311,6 +343,4 @@ trait SpannerLifecycle
  * Assumes a locally running spanner, creates and tears down a database.
  */
 abstract class SpannerSpec(override val databaseName: String = SpannerSpec.getCallerName(getClass))
-    extends SpannerLifecycle {
-  final implicit lazy override val system: ActorSystem = ActorSystem(databaseName, SpannerSpec.config(databaseName))
-}
+    extends SpannerLifecycle {}

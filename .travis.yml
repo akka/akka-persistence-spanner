@@ -42,14 +42,18 @@ jobs:
       - JDK="adopt@~1.11-0"
       - CMD=";test"
       name: "Run tests (AdoptOpenJDK 11)"
+    - script: jabba use adopt@~1.11-0 && java -version && ./docker/setup_emulator && ./testLatestAkkaSnapshot.sh
+      name: "Run tests with Akka snapshot"
+      if: type = cron
 
     - stage: publish
     - env:
       - JDK="adopt@~1.8-0"
       - CMD=";+publish"
-     name: "Publish release"
-   - script: eval "$(ssh-agent -s)" && cp .travis/id_rsa /tmp/id_rsa && chmod 600 /tmp/id_rsa && ssh-keygen -p -P "$DEPLOY_PASSPHRASE" -N "" -f /tmp/id_rsa && ssh-add /tmp/id_rsa && sbt -jvm-opts .jvmopts-travis docs/publishRsync
-     name: "Publish documentation"
+      name: "Publish release"
+
+    - script: eval "$(ssh-agent -s)" && cp .travis/id_rsa /tmp/id_rsa && chmod 600 /tmp/id_rsa && ssh-keygen -p -P "$DEPLOY_PASSPHRASE" -N "" -f /tmp/id_rsa && ssh-add /tmp/id_rsa && sbt -jvm-opts .jvmopts-travis docs/publishRsync
+      name: "Publish documentation"
 
 stages:
   # runs on master commits and PRs

@@ -4,10 +4,9 @@
 
 package akka.persistence.spanner.internal
 
-import java.util.UUID
 import java.util.concurrent.atomic.AtomicLong
 
-import akka.Done
+import akka.{Done, NotUsed}
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.Behaviors
 import akka.actor.typed.{ActorSystem, SupervisorStrategy}
@@ -82,15 +81,15 @@ private[spanner] object SpannerGrpcClient {
    */
   def streamingQuery(
       sql: String,
-      params: Struct,
-      paramTypes: Map[String, Type]
+      params: Option[Struct] = None,
+      paramTypes: Map[String, Type] = Map.empty
   ): Source[Seq[Value], Future[Done]] = {
     val sessionId = nextSessionId()
-    val result = getSession(sessionId).map { session =>
+    val result: Future[Source[Seq[Value], NotUsed]] = getSession(sessionId).map { session =>
       log.debug("streamingQuery, session id [{}]", session.id)
       client
         .executeStreamingSql(
-          ExecuteSqlRequest(session.session.name, sql = sql, params = Some(params), paramTypes = paramTypes)
+          ExecuteSqlRequest(session.session.name, sql = sql, params = params, paramTypes = paramTypes)
         )
         .via(RowCollector)
     }
@@ -98,6 +97,7 @@ private[spanner] object SpannerGrpcClient {
       .futureSource(result)
       .watchTermination() { (_, terminationFuture) =>
         terminationFuture.onComplete { _ =>
+          log.debug("Streaming query {} finished: {}", sessionId, sql)
           pool.tell(ReleaseSession(sessionId))
         }
         terminationFuture
@@ -219,10 +219,10 @@ private[spanner] object SpannerGrpcClient {
         log.debug("Acquiring session, pool busy")
       case Failure(t: TimeoutException) =>
         // no need to release it
-        log.debug("Acquiring session timed out", t.getMessage)
+        log.debug("Acquiring session timed out. Session id: " + sessionId, t.getMessage)
       case Failure(t) =>
         // release
-        log.debug("User query failed: {}, returning session [{}]", t.getMessage, sessionId)
+        log.debug("User query failed: {}. Returning session [{}]", t.getMessage, sessionId)
         pool.tell(ReleaseSession(sessionId))
     }((ExecutionContexts.parasitic))
     result
