@@ -144,11 +144,11 @@ private[spanner] final class SessionPool(
       if (availableSessions.nonEmpty) {
         handOutSession(id, replyTo)
       } else {
-        if (availableSessions.size >= settings.maxOutstandingRequests) {
+        if (requestQueue.size >= settings.maxOutstandingRequests) {
           log.warn("Session pool request stash full, denying request for pool")
           replyTo ! PoolBusy(id)
         } else {
-          log.debug("No free sessions, enqueuing request for session [{}]", id)
+          log.trace("No free sessions, enqueuing request for session [{}]", id)
           requestQueue.enqueue(gt)
         }
       }
