@@ -9,6 +9,8 @@ object Dependencies {
   val Scala213 = "2.13.1"
 
   val AkkaVersion = System.getProperty("override.akka.version", "2.6.4")
+  // for example
+  val AkkaManagementVersion = "1.0.6"
 
   val SpannerVersion = "1.52.0"
   // Keep in sync with Akka gRPC
@@ -27,6 +29,8 @@ object Dependencies {
 
     val grpcAuth = "io.grpc" % "grpc-auth" % GrpcVersion
     val googleAuth = "com.google.auth" % "google-auth-library-oauth2-http" % GoogleAuthVersion
+
+    val logback = "ch.qos.logback" % "logback-classic" % "1.2.3" // EPL 1.0 / LGPL 2.1
   }
 
   object TestDeps {
@@ -35,7 +39,7 @@ object Dependencies {
     val akkaStreamTestkit = "com.typesafe.akka" %% "akka-stream-testkit" % AkkaVersion % Test
     val akkaJackson = "com.typesafe.akka" %% "akka-serialization-jackson" % AkkaVersion % Test
 
-    val logback = "ch.qos.logback" % "logback-classic" % "1.2.3" % Test // EPL 1.0 / LGPL 2.1
+    val logback = Compile.logback % Test
     val scalaTest = "org.scalatest" %% "scalatest" % "3.1.1" % Test // ApacheV2
     val junit = "junit" % "junit" % "4.12" % Test
     val junitInterface = "com.novocode" % "junit-interface" % "0.11" % Test
@@ -57,7 +61,21 @@ object Dependencies {
     googleAuth,
     akkaTestkit,
     akkaJackson,
-    logback,
+    TestDeps.logback,
     scalaTest
+  )
+
+  val example = Seq(
+    "com.typesafe.akka" %% "akka-persistence-typed" % AkkaVersion,
+    "com.typesafe.akka" %% "akka-discovery" % AkkaVersion,
+    "com.typesafe.akka" %% "akka-serialization-jackson" % AkkaVersion,
+    "com.typesafe.akka" %% "akka-cluster-sharding-typed" % AkkaVersion,
+    "com.typesafe.akka" %% "akka-slf4j" % AkkaVersion,
+    Compile.logback,
+    "com.lightbend.akka.management" %% "akka-management" % AkkaManagementVersion,
+    "com.lightbend.akka.management" %% "akka-management-cluster-bootstrap" % AkkaManagementVersion,
+    "com.lightbend.akka.management" %% "akka-management-cluster-http" % AkkaManagementVersion,
+    "com.lightbend.akka.discovery" %% "akka-discovery-kubernetes-api" % AkkaManagementVersion,
+    "org.hdrhistogram" % "HdrHistogram" % "2.1.12"
   )
 }
