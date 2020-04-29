@@ -4,7 +4,7 @@
 
 package akka.persistence.spanner.internal
 
-import akka.actor.typed.scaladsl.{AbstractBehavior, ActorContext, Behaviors, StashBuffer, TimerScheduler}
+import akka.actor.typed.scaladsl.{AbstractBehavior, ActorContext, Behaviors, TimerScheduler}
 import akka.actor.typed.{ActorRef, Behavior, PostStop, PreRestart, Signal}
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.util.PrettyDuration._
@@ -145,7 +145,7 @@ private[spanner] final class SessionPool(
         handOutSession(id, replyTo)
       } else {
         if (requestQueue.size >= settings.maxOutstandingRequests) {
-          log.warn("Session pool request stash full, denying request for pool")
+          log.warn("Session pool request queue full, denying request for pool")
           replyTo ! PoolBusy(id)
         } else {
           log.trace("No free sessions, enqueuing request for session [{}]", id)
@@ -222,12 +222,12 @@ private[spanner] final class SessionPool(
     case Stats =>
       // improve this in https://github.com/akka/akka-persistence-spanner/issues/51
       log.infoN(
-        "in use {}. available {}. used since last stats: {}. Ids {}. Stash size {}",
+        "in use {}. available {}. used since last stats: {}. Ids {}. Request queue size {}",
         inUseSessions.size,
         availableSessions.size,
         uses,
         inUseSessions.keys,
-        stash.size
+        requestQueue.size
       )
       uses = 0
       this
