@@ -182,40 +182,26 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
       .mapMaterializedValue(_ => NotUsed)
   }
 
+  // TODO Unit test in isolation
   private def deserializeAndAddOffset(
       spannerOffset: SpannerOffset
   ): () => Seq[Value] => immutable.Iterable[EventEnvelope] = { () =>
-    {
-      var currentTimestamp: String = spannerOffset.commitTimestamp
-      var currentSequenceNrs: Map[String, Long] = spannerOffset.seen
-      values => {
-        val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, values)
-        if (commitTimestamp == currentTimestamp) {
-          // has this already been seen?
-          if (currentSequenceNrs.get(pr.persistenceId).exists(_ >= pr.sequenceNr)) {
-            log.debugN(
-              "filtering {} {} as commit timestamp is the same as last offset and is in seen {}",
-              pr.persistenceId,
-              pr.sequenceNr,
-              currentSequenceNrs
-            )
-            Nil
-          } else {
-            currentSequenceNrs = currentSequenceNrs.updated(pr.persistenceId, pr.sequenceNr)
-            List(
-              EventEnvelope(
-                SpannerOffset(commitTimestamp, currentSequenceNrs),
-                pr.persistenceId,
-                pr.sequenceNr,
-                pr.payload,
-                pr.timestamp
-              )
-            )
-          }
+    var currentTimestamp: String = spannerOffset.commitTimestamp
+    var currentSequenceNrs: Map[String, Long] = spannerOffset.seen
+    values => {
+      val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, values)
+      if (commitTimestamp == currentTimestamp) {
+        // has this already been seen?
+        if (currentSequenceNrs.get(pr.persistenceId).exists(_ >= pr.sequenceNr)) {
+          log.debugN(
+            "filtering {} {} as commit timestamp is the same as last offset and is in seen {}",
+            pr.persistenceId,
+            pr.sequenceNr,
+            currentSequenceNrs
+          )
+          Nil
         } else {
-          // ne timestamp, reset currentSequenceNrs
-          currentTimestamp = commitTimestamp
-          currentSequenceNrs = Map(pr.persistenceId -> pr.sequenceNr)
+          currentSequenceNrs = currentSequenceNrs.updated(pr.persistenceId, pr.sequenceNr)
           List(
             EventEnvelope(
               SpannerOffset(commitTimestamp, currentSequenceNrs),
@@ -226,6 +212,19 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
             )
           )
         }
+      } else {
+        // ne timestamp, reset currentSequenceNrs
+        currentTimestamp = commitTimestamp
+        currentSequenceNrs = Map(pr.persistenceId -> pr.sequenceNr)
+        List(
+          EventEnvelope(
+            SpannerOffset(commitTimestamp, currentSequenceNrs),
+            pr.persistenceId,
+            pr.sequenceNr,
+            pr.payload,
+            pr.timestamp
+          )
+        )
       }
     }
   }
