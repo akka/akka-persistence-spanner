@@ -40,6 +40,20 @@ private[spanner] object SpannerJournalInteractions {
 
   object Schema {
     object Journal {
+      // weird formatting is for docs
+      def journalTable(settings: SpannerSettings): String =
+        s"""CREATE TABLE ${settings.journalTable} (
+        persistence_id STRING(MAX) NOT NULL,
+        sequence_nr INT64 NOT NULL,
+        event BYTES(MAX),
+        ser_id INT64 NOT NULL,
+        ser_manifest STRING(MAX) NOT NULL,
+        tags ARRAY<STRING(MAX)>,
+        write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+        writer_uuid STRING(MAX) NOT NULL,
+) PRIMARY KEY (persistence_id, sequence_nr)
+"""
+
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
       val SeqNr = "sequence_nr" -> Type(TypeCode.INT64)
       val Event = "event" -> Type(TypeCode.BYTES)
@@ -92,6 +106,14 @@ private[spanner] object SpannerJournalInteractions {
       "to_sequence_nr" -> Type(TypeCode.INT64),
       "max" -> Type(TypeCode.INT64)
     )
+
+    // weird formatting is for docs
+    def deleteMetadataTable(settings: SpannerSettings): String =
+      s"""CREATE TABLE ${settings.deletionsTable} (
+    persistence_id STRING(MAX) NOT NULL,
+    deleted_to INT64 NOT NULL,
+) PRIMARY KEY (persistence_id)
+"""
 
     val DeleteStatementTypes: Map[String, Type] = Map(
       "persistence_id" -> Type(TypeCode.STRING),

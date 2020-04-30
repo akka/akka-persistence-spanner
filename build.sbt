@@ -90,9 +90,9 @@ lazy val example = (project in file("example"))
     name := "akka-persistence-spanner-example",
     libraryDependencies ++= Dependencies.example,
     fork in run := false,
-    Global / cancelable := false // ctrl-c
+    Global / cancelable := false // let ctrl-c kill sbt
   )
-  .dependsOn(journal % "compile->compile;compile->test") // access to the schema creation in the tests
+  .dependsOn(journal)
 
 lazy val docs = project
   .in(file("docs"))

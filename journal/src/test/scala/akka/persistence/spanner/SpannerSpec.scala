@@ -7,9 +7,10 @@ package akka.persistence.spanner
 import java.util.concurrent.atomic.AtomicLong
 
 import akka.actor.testkit.typed.internal.CapturingAppender
-import akka.actor.testkit.typed.scaladsl.{ActorTestKit}
+import akka.actor.testkit.typed.scaladsl.ActorTestKit
 import akka.actor.typed.scaladsl.adapter._
 import akka.grpc.GrpcClientSettings
+import akka.persistence.spanner.internal.{SpannerJournalInteractions, SpannerSnapshotInteractions}
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.protobuf.struct.ListValue
 import com.google.protobuf.struct.Value.Kind
@@ -113,38 +114,6 @@ object SpannerSpec {
         use-tls = false
       }
      """)
-
-  def journalTable(settings: SpannerSettings): String =
-    s"""CREATE TABLE ${settings.journalTable} (
-        persistence_id STRING(MAX) NOT NULL,
-        sequence_nr INT64 NOT NULL,
-        event BYTES(MAX),
-        ser_id INT64 NOT NULL,
-        ser_manifest STRING(MAX) NOT NULL,
-        tags ARRAY<STRING(MAX)>,
-        write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-        writer_uuid STRING(MAX) NOT NULL,
-) PRIMARY KEY (persistence_id, sequence_nr)
-"""
-
-  def deleteMetadataTable(settings: SpannerSettings): String =
-    s"""CREATE TABLE ${settings.deletionsTable} (
-    persistence_id STRING(MAX) NOT NULL,
-    deleted_to INT64 NOT NULL,
-) PRIMARY KEY (persistence_id)
-"""
-
-  def snapshotTable(settings: SpannerSettings): String =
-    s"""
-    CREATE TABLE ${settings.snapshotsTable} (
-      persistence_id STRING(MAX) NOT NULL,
-      sequence_nr INT64 NOT NULL,
-      timestamp TIMESTAMP NOT NULL,
-      ser_id INT64 NOT NULL,
-      ser_manifest STRING(MAX) NOT NULL,
-      snapshot BYTES(MAX)
-    ) PRIMARY KEY (persistence_id, sequence_nr) 
-    """
 }
 
 trait SpannerLifecycle
@@ -233,10 +202,10 @@ trait SpannerLifecycle
         CreateDatabaseRequest(
           parent = spannerSettings.parent,
           s"CREATE DATABASE ${spannerSettings.database}",
-          SpannerSpec.journalTable(spannerSettings) ::
-          SpannerSpec.deleteMetadataTable(spannerSettings) ::
+          SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
+          SpannerJournalInteractions.Schema.deleteMetadataTable(spannerSettings) ::
           (if (withSnapshotStore)
-             SpannerSpec.snapshotTable(spannerSettings) :: Nil
+             SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
            else Nil)
         )
       )

@@ -7,6 +7,7 @@ package akka.persistence.spanner
 import java.io.{File, PrintWriter}
 
 import akka.actor.ActorSystem
+import akka.persistence.spanner.internal.{SpannerJournalInteractions, SpannerSnapshotInteractions}
 
 object PrintSchema {
   def main(args: Array[String]): Unit = {
@@ -25,14 +26,14 @@ object PrintSchema {
 
     withWriter("./target/journal-tables.txt") { pw =>
       pw.println("//#journal-tables")
-      pw.println(SpannerSpec.journalTable(settings))
-      pw.println(SpannerSpec.deleteMetadataTable(settings))
+      pw.println(SpannerJournalInteractions.Schema.Journal.journalTable(settings))
+      pw.println(SpannerJournalInteractions.Schema.deleteMetadataTable(settings))
       pw.println("//#journal-tables")
     }
 
     withWriter("./target/snapshot-tables.txt") { pw =>
       pw.println("//#snapshot-tables")
-      pw.println(SpannerSpec.snapshotTable(settings))
+      pw.println(SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(settings))
       pw.println("//#snapshot-tables")
     }
     system.terminate()

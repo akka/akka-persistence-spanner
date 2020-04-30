@@ -8,12 +8,12 @@ import akka.grpc.GrpcClientSettings
 import akka.management.cluster.bootstrap.ClusterBootstrap
 import akka.management.scaladsl.AkkaManagement
 import akka.persistence.spanner.SpannerSettings
+import akka.persistence.spanner.internal.{SpannerJournalInteractions, SpannerSnapshotInteractions}
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.spanner.admin.database.v1.{CreateDatabaseRequest, DatabaseAdminClient}
 import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdminClient}
 import com.google.spanner.v1.SpannerClient
 import io.grpc.auth.MoreCallCredentials
-import akka.persistence.spanner.SpannerSpec
 
 import scala.concurrent.{Await, Future}
 import scala.concurrent.duration._
@@ -23,7 +23,6 @@ object Main {
     ActorSystem(
       Behaviors.setup[Any] { ctx =>
         val cluster = Cluster(ctx.system)
-        println("starting up example")
         ctx.log.info("Starting up example")
         if (cluster.selfMember.hasRole("read")) {
           // FIXME create offset store
@@ -107,9 +106,9 @@ object Main {
           CreateDatabaseRequest(
             parent = spannerSettings.parent,
             s"CREATE DATABASE ${spannerSettings.database}",
-            SpannerSpec.journalTable(spannerSettings) ::
-            SpannerSpec.deleteMetadataTable(spannerSettings) ::
-            SpannerSpec.snapshotTable(spannerSettings) :: Nil
+            SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
+            SpannerJournalInteractions.Schema.deleteMetadataTable(spannerSettings) ::
+            SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
           )
         )
         .recover {
