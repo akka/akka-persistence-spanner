@@ -257,6 +257,11 @@ private[spanner] final class SessionPool(
       timers.startSingleTimer(CreateSingleSession, settings.sessionPool.retryCreateInterval)
       this
 
+    case SessionCreateFailed(t) =>
+      log.warn("Failed to create replacement session. It will be retried.", t)
+      timers.startSingleTimer(CreateSingleSession, settings.sessionPool.retryCreateInterval)
+      this
+
     case Stats =>
       statsLogger.debugN(
         "Sessions inUse {}. Sessions available {}. Uss since last stats: {}. Ids {}. Request queue size {}",
