@@ -40,6 +40,10 @@ private[spanner] object SpannerGrpcClient {
   final class PoolBusyException extends RuntimeException("") with NoStackTrace
 
   val PoolBusyException = new PoolBusyException
+
+  private val sessionIdCounter = new AtomicLong(0)
+
+  private def nextSessionId(): Long = sessionIdCounter.incrementAndGet()
 }
 
 /**
@@ -57,10 +61,6 @@ private[spanner] object SpannerGrpcClient {
   private implicit val ec = system.executionContext
 
   private val log = LoggerFactory.getLogger(classOf[SpannerGrpcClient])
-
-  private val sessionIdCounter = new AtomicLong(0)
-
-  private def nextSessionId(): Long = sessionIdCounter.incrementAndGet()
 
   private val pool = createPool()
 

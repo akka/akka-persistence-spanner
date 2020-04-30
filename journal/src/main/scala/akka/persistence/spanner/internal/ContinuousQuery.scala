@@ -72,7 +72,7 @@ final private[spanner] class ContinuousQuery[S, T](
       override protected def onTimer(timerKey: Any): Unit = timerKey match {
         case NextQuery => next()
         case ContinuousQuery.Status =>
-          log.info(
+          log.debug(
             "Status: has been pulled? {}. subStreamFinished {}. innerSink has been pulled? {}, inner sink closed {}. Buffered element: " + nextRow,
             isAvailable(out),
             subStreamFinished,

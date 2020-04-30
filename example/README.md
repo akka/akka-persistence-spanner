@@ -16,7 +16,8 @@ There are three roles:
  * load - generate load to the persistent actors
  * read - run the sharded daemon set to read the tagged events
 
-The read side periodically publishes latency statistics to distributed pub sub. These are currently just logged out.
+The read side gathers latency statistics, from when the event was written to when it was consumed by the read side (given 
+that the node clocks are in sync), the statistics are published to distributed pub sub. These are currently just logged out in millis.
 
 The sample will try to create tables but there is no retrying if it fails for some reason so pay attention to early log entries in case the example does not work.
 
@@ -32,20 +33,30 @@ The example will try to create the instance, database and tables.
 The first node can run with the default ports for remoting and akka management. The config location
  and the role must be specified as JVM options:
  
-`-Dconfig.resource=local-spanner.conf -Dakka.cluster.roles.0=write`
+```
+sbt -Dconfig.resource=local-spanner.conf -Dakka.cluster.roles.0=write "example/run"
+```
  
 Each node needs its akka management and remoting port overriden. For the cluster to join the default settings with `local.conf`
  and ports 2552 and 8552 need to be running.
  
-`-Dakka.remote.artery.canonical.port=2552 -Dakka.management.http.port=8552 -Dconfig.resource=local.conf -Dakka.cluster.roles.0=write`
+```
+sbt -Dakka.remote.artery.canonical.port=2552 -Dakka.management.http.port=8552 -Dconfig.resource=local.conf -Dakka.cluster.roles.0=write "example/run"
+```
 
 At least one load node:
 
-`-Dakka.remote.artery.canonical.port=2553 -Dakka.management.http.port=8553 -Dconfig.resource=local.conf -Dakka.cluster.roles.0=load`
+```
+sbt -Dakka.remote.artery.canonical.port=2553 -Dakka.management.http.port=8553 -Dconfig.resource=local.conf -Dakka.cluster.roles.0=load "example/run"
+```
 
-And finally at least one read node:
+And finally at least one read node, combined with reporting the latency:
 
-  `-Dakka.remote.artery.canonical.port=2554 -Dakka.management.http.port=8554 -Dconfig.resource=local.conf -Dakka.cluster.roles.0=read`
+```
+sbt -Dakka.remote.artery.canonical.port=2554 -Dakka.management.http.port=8554 -Dconfig.resource=local.conf -Dakka.cluster.roles.0=read -Dakka.cluster.roles.1=report "example/run"
+```
+
+
 
  ## Running inside a Kubernetes Cluster
  
