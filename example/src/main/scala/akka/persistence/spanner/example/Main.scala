@@ -90,17 +90,17 @@ object Main {
     val instanceClient = InstanceAdminClient(grpcSettings)
 
     def createInstance() = {
-      system.log.info("Creating spanner instance")
+      system.log.info("Creating spanner instance [{}]", spannerSettings.instance)
       instanceClient
         .createInstance(CreateInstanceRequest(spannerSettings.fullyQualifiedProject, spannerSettings.instance))
         .recover {
-          case t if t.getMessage.contains("ALREADY_EXISTS") =>
-            "ALREADY_EXISTS"
+          case ex =>
+            system.log.warn("Spanner instance creation failed", ex)
         }
     }
 
     def createDatabaseAndTables() = {
-      system.log.info("Creating spanner db and tables")
+      system.log.info("Creating spanner db [{}] (and tables)", spannerSettings.database)
       adminClient
         .createDatabase(
           CreateDatabaseRequest(
@@ -108,12 +108,14 @@ object Main {
             s"CREATE DATABASE ${spannerSettings.database}",
             SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
             SpannerJournalInteractions.Schema.deleteMetadataTable(spannerSettings) ::
-            SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
+            SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) ::
+            EventProcessorStream.Schema.offsetStoreTable() ::
+            Nil
           )
         )
         .recover {
-          case t if t.getMessage.contains("ALREADY_EXISTS") =>
-            "ALREADY_EXISTS"
+          case ex =>
+            system.log.info("Spanner db creation failed", ex)
         }
     }
 

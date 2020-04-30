@@ -2,19 +2,65 @@ package akka.persistence.spanner.example
 
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
+import akka.dispatch.ExecutionContexts
 import akka.persistence.query.{NoOffset, Offset, PersistenceQuery}
 import akka.persistence.spanner.SpannerOffset
+import akka.persistence.spanner.internal.SpannerGrpcClientExtension
 import akka.persistence.spanner.scaladsl.SpannerReadJournal
 import akka.persistence.typed.PersistenceId
 import akka.stream.SharedKillSwitch
 import akka.stream.scaladsl.{RestartSource, Sink, Source}
 import akka.{Done, NotUsed}
+import com.google.protobuf.struct.Value.Kind
+import com.google.protobuf.struct.{ListValue, Struct, Value}
+import com.google.protobuf.struct.Value.Kind.StringValue
+import com.google.spanner.v1.{Mutation, Type, TypeCode}
 import org.HdrHistogram.Histogram
 import org.slf4j.{Logger, LoggerFactory}
 
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
+
+object EventProcessorStream {
+  object Schema {
+    val offsetStoreTableName = "offsets"
+
+    def offsetStoreTable(): String =
+      s"""
+       CREATE TABLE $offsetStoreTableName (
+        eventProcessorId STRING(MAX) NOT NULL,
+        tag STRING(MAX) NOT NULL,
+        offset STRING(MAX) NOT NULL,
+        seen ARRAY<STRING(MAX)>
+      ) PRIMARY KEY (eventProcessorId, tag)
+      """
+
+    val EventProcessorId = "eventProcessorId" -> Type(TypeCode.STRING)
+    val Tag = "tag" -> Type(TypeCode.STRING)
+    val Offset = "offset" -> Type(TypeCode.STRING)
+    val Seen = "seen" -> Type(TypeCode.ARRAY)
+
+    val Columns =
+      Seq(EventProcessorId, Tag, Offset, Seen)
+        .map(_._1)
+        .toList
+
+    val offsetQuery =
+      s"SELECT offset, seen FROM ${Schema.offsetStoreTableName} WHERE eventProcessorId = @eventProcessorId AND tag = @tag"
+    def offsetQueryParams(eventProcessorId: String, tag: String) =
+      Struct(
+        Map(
+          "eventProcessorId" -> Value(StringValue(eventProcessorId)),
+          "tag" -> Value(StringValue(tag))
+        )
+      )
+    val offsetQueryParamTypes = Map(
+      "eventProcessorId" -> Type(TypeCode.STRING),
+      "tag" -> Type(TypeCode.STRING)
+    )
+  }
+}
 
 class EventProcessorStream[Event: ClassTag](
     system: ActorSystem[_],
@@ -25,11 +71,12 @@ class EventProcessorStream[Event: ClassTag](
   protected val log: Logger = LoggerFactory.getLogger(getClass)
   implicit val sys: ActorSystem[_] = system
   implicit val ec: ExecutionContext = executionContext
-
-  // FIXME where do we store offsets?
-  // private val session = CassandraSessionRegistry(system).sessionFor("akka.persistence.cassandra")
+  import EventProcessorStream.Schema
 
   private val query = PersistenceQuery(system).readJournalFor[SpannerReadJournal](SpannerReadJournal.Identifier)
+
+  // Note: this client is not public user API
+  private val grpcClient = SpannerGrpcClientExtension(sys).clientFor("akka.persistence.spanner")
 
   def runQueryStream(killSwitch: SharedKillSwitch, histogram: Histogram): Unit =
     RestartSource
@@ -69,40 +116,71 @@ class EventProcessorStream[Event: ClassTag](
       }
     }
 
-  private def readOffset(): Future[Offset] = Future.successful(NoOffset)
-  /* FIXME actual offset storage
-    session
-      .selectOne(
-        "SELECT timeUuidOffset FROM akka.offsetStore WHERE eventProcessorId = ? AND tag = ?",
-        eventProcessorId,
-        tag
-      )
-      .map(extractOffset)
+  private def readOffset(): Future[Offset] =
+    grpcClient
+      .withSession { implicit session =>
+        grpcClient.executeQuery(
+          Schema.offsetQuery,
+          Schema.offsetQueryParams(eventProcessorId, tag),
+          Schema.offsetQueryParamTypes
+        )
+      }
+      .map { rs =>
+        if (rs.rows.isEmpty) startOffset()
+        else {
+          require(rs.rows.size == 1)
+          val valueIterator = rs.rows.head.values.iterator
+          val offset = valueIterator.next.kind.stringValue.get
+          val seen = valueIterator
+            .next()
+            .kind
+            .listValue
+            .get
+            .values
+            .map { value =>
+              val string = value.kind.stringValue.get
+              val Array(pid, seqnr) = string.split(':')
+              pid -> seqnr.toLong
+            }
+            .toMap
 
-  private def extractOffset(maybeRow: Option[Row]): Offset =
-    maybeRow match {
-      case Some(row) =>
-        val uuid = row.getUuid("timeUuidOffset")
-        if (uuid == null) {
-          startOffset()
-        } else {
-          TimeBasedUUID(uuid)
+          SpannerOffset(offset, seen)
         }
-      case None => startOffset()
-    }
-   */
+      }
 
-  // FIXME start with a more resent offset like the C* example
   private def startOffset(): Offset = NoOffset
-  /*
-  private def prepareWriteOffset(): Future[PreparedStatement] =
-    session.prepare("INSERT INTO akka.offsetStore (eventProcessorId, tag, timeUuidOffset) VALUES (?, ?, ?)")
-   */
+
   private def writeOffset(offset: Offset)(implicit ec: ExecutionContext): Future[Done] =
     offset match {
-      case t: SpannerOffset =>
-        // FIXME serialize and store
-        Future.successful(Done)
+      case SpannerOffset(commitTimestamp, seen) =>
+        grpcClient
+          .withSession { implicit session =>
+            grpcClient.write(
+              Seq(
+                Mutation(
+                  Mutation.Operation.InsertOrUpdate(
+                    Mutation.Write(
+                      Schema.offsetStoreTableName,
+                      Schema.Columns,
+                      Seq(
+                        ListValue(
+                          Seq(
+                            Value(StringValue(eventProcessorId)),
+                            Value(StringValue(tag)),
+                            Value(StringValue(commitTimestamp)),
+                            Value(Kind.ListValue(ListValue(seen.map {
+                              case (pid, seqnr) => Value(StringValue(s"$pid:$seqnr"))
+                            }.toSeq)))
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
+          }
+          .map(_ => Done)(ExecutionContexts.parasitic)
 
       case _ =>
         throw new IllegalArgumentException(s"Unexpected offset type $offset")
