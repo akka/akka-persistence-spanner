@@ -32,7 +32,7 @@ private[spanner] object SpannerSettings {
       case _ => Some(config.getDuration("stats-interval").asScala)
     }
 
-    val statsLogger = config.getString("stats-loggger")
+    val statsLogger = config.getString("stats-logger")
   }
 }
 
