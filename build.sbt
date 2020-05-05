@@ -126,6 +126,8 @@ lazy val docs = project
     Paradox / siteSubdirName := s"docs/akka-persistence-spanner/${projectInfoVersion.value}",
     paradoxGroups := Map("Language" -> Seq("Java", "Scala")),
     paradoxProperties ++= Map(
+        "project.url" -> "https://doc.akka.io/docs/akka-persistence-spanner/current/",
+        "canonical.base_url" -> "https://doc.akka.io/docs/akka-persistence-spanner/current/",
         "akka.version" -> Dependencies.AkkaVersion,
         "extref.akka-docs.base_url" -> s"https://doc.akka.io/docs/akka/${Dependencies.AkkaVersion}/%s",
         "extref.java-docs.base_url" -> "https://docs.oracle.com/en/java/javase/11/%s",
