@@ -23,8 +23,7 @@ object EventsByTagSpec {
 }
 
 class EventsByTagSpec extends SpannerSpec {
-  val query = PersistenceQuery(testKit.system)
-    .readJournalFor[SpannerReadJournal](SpannerReadJournal.Identifier)
+  val query = PersistenceQuery(testKit.system).readJournalFor[SpannerReadJournal](SpannerReadJournal.Identifier)
 
   class Setup {
     val persistenceId = nextPid
@@ -35,7 +34,7 @@ class EventsByTagSpec extends SpannerSpec {
     val sinkProbe = TestSink.probe[EventEnvelope]
   }
 
-  List[QueryType](Current) foreach { queryType =>
+  List[QueryType](Current).foreach { queryType =>
     def doQuery(tag: String, offset: Offset): Source[EventEnvelope, NotUsed] =
       queryType match {
         case Live =>
@@ -57,11 +56,9 @@ class EventsByTagSpec extends SpannerSpec {
       "return all events for NoOffset" in new Setup {
         for (i <- 1 to 20) {
           tagger ! WithTags(s"e-$i", tags, probe.ref)
-          probe.expectMessage(Done)
+          probe.expectMessage(10.seconds, Done)
         }
-        val result: TestSubscriber.Probe[EventEnvelope] = doQuery(tag, NoOffset)
-          .runWith(sinkProbe)
-          .request(21)
+        val result: TestSubscriber.Probe[EventEnvelope] = doQuery(tag, NoOffset).runWith(sinkProbe).request(21)
         for (i <- 1 to 20) {
           val expectedEvent = s"e-$i"
           withClue(s"Expected event $expectedEvent") {
@@ -79,9 +76,7 @@ class EventsByTagSpec extends SpannerSpec {
           probe.expectMessage(Done)
         }
 
-        val result: TestSubscriber.Probe[EventEnvelope] = doQuery(tag, NoOffset)
-          .runWith(sinkProbe)
-          .request(21)
+        val result: TestSubscriber.Probe[EventEnvelope] = doQuery(tag, NoOffset).runWith(sinkProbe).request(21)
 
         result.expectNextN(9)
 
@@ -132,10 +127,7 @@ class EventsByTagSpec extends SpannerSpec {
   // tests just relevant for live query
   "Live events by tag" should {
     "empty query returns session" in {
-      val result = query
-        .eventsByTag("no-events", NoOffset)
-        .runWith(TestSink.probe)
-        .request(10)
+      val result = query.eventsByTag("no-events", NoOffset).runWith(TestSink.probe).request(10)
 
       // should keep querying and being able to get sessions without failing
       result.expectNoMessage(6.seconds)
@@ -147,10 +139,7 @@ class EventsByTagSpec extends SpannerSpec {
         tagger ! WithTags(s"e-$i", tags, probe.ref)
         probe.expectMessage(Done)
       }
-      val result: TestSubscriber.Probe[EventEnvelope] = query
-        .eventsByTag(tag, NoOffset)
-        .runWith(sinkProbe)
-        .request(21)
+      val result: TestSubscriber.Probe[EventEnvelope] = query.eventsByTag(tag, NoOffset).runWith(sinkProbe).request(21)
       for (i <- 1 to 20) {
         val expectedEvent = s"e-$i"
         withClue(s"Expected event $expectedEvent") {

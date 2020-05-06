@@ -34,13 +34,8 @@ object TestActors {
     case class PersistMe(payload: Any, replyTo: ActorRef[Done])
 
     def apply(pid: String): Behavior[PersistMe] =
-      EventSourcedBehavior[PersistMe, Any, String](
-        persistenceId = PersistenceId.ofUniqueId(pid),
-        "",
-        (_, command) => {
-          Effect.persist(command.payload).thenRun(_ => command.replyTo ! Done)
-        },
-        (_, _) => ""
-      )
+      EventSourcedBehavior[PersistMe, Any, String](persistenceId = PersistenceId.ofUniqueId(pid), "", (_, command) => {
+        Effect.persist(command.payload).thenRun(_ => command.replyTo ! Done)
+      }, (_, _) => "")
   }
 }

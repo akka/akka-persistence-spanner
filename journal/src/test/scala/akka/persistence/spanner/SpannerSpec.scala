@@ -78,6 +78,7 @@ object SpannerSpec {
         }
       }
       akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
+      # FIXME neither dilation nor akka.test.single-expect-default works for some reason
       akka.test.timefactor = 2
       # allow java serialization when testing
       akka.actor.allow-java-serialization = on
