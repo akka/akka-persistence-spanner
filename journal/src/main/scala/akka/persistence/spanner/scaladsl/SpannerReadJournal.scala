@@ -58,9 +58,11 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
 
   private val EventsByTagSql =
     s"""SELECT ${SpannerJournalInteractions.Schema.Journal.Columns.map(column => s"j.$column").mkString(", ")}
-        FROM ${settings.journalTable} AS j JOIN ${settings.eventTagTable} AS t ON j.persistence_id = t.persistence_id AND j.sequence_nr = t.sequence_nr  
-        WHERE @tag = t.tag AND j.write_time >= @write_time 
-        ORDER BY j.write_time, j.persistence_id, j.sequence_nr """
+       |FROM ${settings.eventTagTable} AS t JOIN ${settings.journalTable} AS j 
+       |ON t.persistence_id = j.persistence_id AND t.sequence_nr = j.sequence_nr  
+       |WHERE t.tag = @tag 
+       |AND t.write_time >= @write_time 
+       |ORDER BY t.write_time, t.persistence_id, t.sequence_nr""".stripMargin
 
   private val PersistenceIdsQuery =
     s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
