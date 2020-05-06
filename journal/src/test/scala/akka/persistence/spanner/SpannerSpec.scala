@@ -10,7 +10,7 @@ import akka.actor.testkit.typed.internal.CapturingAppender
 import akka.actor.testkit.typed.scaladsl.ActorTestKit
 import akka.actor.typed.scaladsl.adapter._
 import akka.grpc.GrpcClientSettings
-import akka.persistence.spanner.internal.{SpannerJournalInteractions, SpannerSnapshotInteractions}
+import akka.persistence.spanner.internal.{ SpannerJournalInteractions, SpannerSnapshotInteractions }
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.protobuf.struct.ListValue
 import com.google.protobuf.struct.Value.Kind
@@ -20,28 +20,27 @@ import com.google.spanner.admin.database.v1.{
   DropDatabaseRequest,
   GetDatabaseRequest
 }
-import com.google.spanner.admin.instance.v1.{CreateInstanceRequest, InstanceAdminClient}
-import com.google.spanner.v1.{CreateSessionRequest, DeleteSessionRequest, ExecuteSqlRequest, SpannerClient}
-import com.typesafe.config.{Config, ConfigFactory}
+import com.google.spanner.admin.instance.v1.{ CreateInstanceRequest, InstanceAdminClient }
+import com.google.spanner.v1.{ CreateSessionRequest, DeleteSessionRequest, ExecuteSqlRequest, SpannerClient }
+import com.typesafe.config.{ Config, ConfigFactory }
 import io.grpc.Status.Code
 import io.grpc.StatusRuntimeException
 import io.grpc.auth.MoreCallCredentials
-import org.scalatest.concurrent.{Eventually, ScalaFutures}
+import org.scalatest.concurrent.{ Eventually, ScalaFutures }
 import org.scalatest.exceptions.TestFailedException
 import org.scalatest.matchers.should.Matchers
-import org.scalatest.time.{Millis, Seconds, Span}
+import org.scalatest.time.{ Millis, Seconds, Span }
 import org.scalatest.wordspec.AnyWordSpecLike
-import org.scalatest.{BeforeAndAfterAll, Outcome, Suite}
+import org.scalatest.{ BeforeAndAfterAll, Outcome, Suite }
 import org.slf4j.LoggerFactory
 
 import scala.concurrent.duration._
-import scala.concurrent.{Await, ExecutionContext, Future}
+import scala.concurrent.{ Await, ExecutionContext, Future }
 
 object SpannerSpec {
   private var instanceCreated = false
   def ensureInstanceCreated(client: InstanceAdminClient, spannerSettings: SpannerSettings)(
-      implicit ec: ExecutionContext
-  ): Unit =
+      implicit ec: ExecutionContext): Unit =
     this.synchronized {
       if (!instanceCreated) {
         Await.ready(
@@ -50,8 +49,7 @@ object SpannerSpec {
             .recover {
               case t if t.getMessage.contains("ALREADY_EXISTS") =>
             },
-          10.seconds
-        )
+          10.seconds)
         instanceCreated = true
       }
     }
@@ -64,7 +62,7 @@ object SpannerSpec {
       .dropWhile(_.matches("(java.lang.Thread|.*Abstract.*|akka.persistence.spanner.SpannerSpec\\$|.*SpannerSpec)"))
     val reduced = s.lastIndexWhere(_ == clazz.getName) match {
       case -1 => s
-      case z => s.drop(z + 1)
+      case z  => s.drop(z + 1)
     }
     reduced.head.replaceFirst(""".*\.""", "").replaceAll("[^a-zA-Z_0-9]", "_")
   }
@@ -146,16 +144,9 @@ trait SpannerLifecycle
   val grpcSettings: GrpcClientSettings = if (spannerSettings.useAuth) {
     GrpcClientSettings
       .fromConfig("spanner-client")
-      .withCallCredentials(
-        MoreCallCredentials.from(
-          GoogleCredentials
-            .getApplicationDefault()
-            .createScoped(
-              "https://www.googleapis.com/auth/spanner.admin",
-              "https://www.googleapis.com/auth/spanner.data"
-            )
-        )
-      )
+      .withCallCredentials(MoreCallCredentials.from(GoogleCredentials
+        .getApplicationDefault()
+        .createScoped("https://www.googleapis.com/auth/spanner.admin", "https://www.googleapis.com/auth/spanner.data")))
   } else {
     GrpcClientSettings.fromConfig("spanner-client")
   }
@@ -206,11 +197,10 @@ trait SpannerLifecycle
           SpannerJournalInteractions.Schema.Deleted.deleteMetadataTable(spannerSettings) ::
           (if (withSnapshotStore)
              SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
-           else Nil)
-        )
-      )
-      .onFailure {
-        case ex => ex.printStackTrace()
+           else Nil)))
+      .failed
+      .foreach { ex =>
+        ex.printStackTrace()
       }
     // wait for db to be ready before testing
     eventually {
@@ -230,12 +220,10 @@ trait SpannerLifecycle
     if (!(res.isSucceeded || res.isPending)) {
       failed = true
       println(
-        s"--> [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] Start of log messages of test that [$res]"
-      )
+        s"--> [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] Start of log messages of test that [$res]")
       capturingAppender.flush()
       println(
-        s"<-- [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] End of log messages of test that [$res]"
-      )
+        s"<-- [${Console.BLUE}${self.getClass.getName}: ${test.name}${Console.RESET}] End of log messages of test that [$res]")
     }
     res
   }
@@ -248,17 +236,13 @@ trait SpannerLifecycle
         execute <- spannerClient.executeSql(
           ExecuteSqlRequest(
             session = session.name,
-            sql = s"select * from ${spannerSettings.journalTable} order by persistence_id, sequence_nr"
-          )
-        )
+            sql = s"select * from ${spannerSettings.journalTable} order by persistence_id, sequence_nr"))
         deletions <- spannerClient.executeSql(
-          ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.deletionsTable}")
-        )
+          ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.deletionsTable}"))
         snapshotRows <- if (withSnapshotStore)
           spannerClient
             .executeSql(
-              ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.snapshotsTable}")
-            )
+              ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.snapshotsTable}"))
             .map(_.rows)
         else
           Future.successful(Seq.empty)
@@ -292,9 +276,9 @@ trait SpannerLifecycle
           else s"'${string.substring(0, 50)}...'"
         case Kind.BoolValue(bool) => bool.toString
         case Kind.NumberValue(nr) => nr.toString
-        case Kind.NullValue(_) => "null"
-        case Kind.Empty => ""
-        case Kind.StructValue(_) => ???
+        case Kind.NullValue(_)    => "null"
+        case Kind.Empty           => ""
+        case Kind.StructValue(_)  => ???
       })
       .mkString("[", ", ", "]")
 
