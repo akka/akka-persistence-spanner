@@ -40,18 +40,16 @@ private[spanner] object SpannerJournalInteractions {
 
   object Schema {
     object Journal {
-      // weird formatting is for docs
       def journalTable(settings: SpannerSettings): String =
         s"""CREATE TABLE ${settings.journalTable} (
-        persistence_id STRING(MAX) NOT NULL,
-        sequence_nr INT64 NOT NULL,
-        event BYTES(MAX),
-        ser_id INT64 NOT NULL,
-        ser_manifest STRING(MAX) NOT NULL,
-        write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
-        writer_uuid STRING(MAX) NOT NULL,
-) PRIMARY KEY (persistence_id, sequence_nr)
-"""
+           |  persistence_id STRING(MAX) NOT NULL,
+           |  sequence_nr INT64 NOT NULL,
+           |  event BYTES(MAX),
+           |  ser_id INT64 NOT NULL,
+           |  ser_manifest STRING(MAX) NOT NULL,
+           |  write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+           |  writer_uuid STRING(MAX) NOT NULL,
+           |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
       val SeqNr = "sequence_nr" -> Type(TypeCode.INT64)
@@ -105,18 +103,26 @@ private[spanner] object SpannerJournalInteractions {
       def tagTable(settings: SpannerSettings): String =
         // weird formatting is for docs
         s"""CREATE TABLE ${settings.eventTagTable} (
-      persistence_id STRING(MAX) NOT NULL,
-      sequence_nr INT64 NOT NULL,
-      tag STRING(MAX) NOT NULL,
-) PRIMARY KEY (persistence_id, sequence_nr, tag),
-  INTERLEAVE IN PARENT ${settings.journalTable}
-"""
+           |  persistence_id STRING(MAX) NOT NULL,
+           |  sequence_nr INT64 NOT NULL,
+           |  tag STRING(MAX) NOT NULL,
+           |  write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
+           |) PRIMARY KEY (persistence_id, sequence_nr, tag),
+           |INTERLEAVE IN PARENT ${settings.journalTable}""".stripMargin
+
+      def eventsByTagIndex(settings: SpannerSettings): String =
+        s"""CREATE INDEX ${settings.eventTagTable}_tag_and_offset
+           |ON ${settings.eventTagTable} (
+           |	tag,
+           |	write_time
+           |)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
       val SeqNr = "sequence_nr" -> Type(TypeCode.INT64)
       val Tag = "tag" -> Type(TypeCode.STRING)
+      val WriteTime = "write_time" -> Type(TypeCode.TIMESTAMP)
 
-      val Columns = List(PersistenceId, SeqNr, Tag).map(_._1)
+      val Columns = List(PersistenceId, SeqNr, Tag, WriteTime).map(_._1)
     }
 
     object Deleted {
@@ -204,7 +210,9 @@ private[spanner] class SpannerJournalInteractions(
                       List(
                         Value(StringValue(sw.persistenceId)),
                         Value(StringValue(sw.sequenceNr.toString)), // ints and longs are StringValues :|
-                        Value(StringValue(tagName))
+                        Value(StringValue(tagName)),
+                        // special value for a timestamp that gets the write timestamp
+                        Value(StringValue("spanner.commit_timestamp()"))
                       )
                     )
                   )
