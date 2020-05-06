@@ -107,7 +107,8 @@ object Main {
             parent = spannerSettings.parent,
             s"CREATE DATABASE ${spannerSettings.database}",
             SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
-            SpannerJournalInteractions.Schema.deleteMetadataTable(spannerSettings) ::
+            SpannerJournalInteractions.Schema.Tags.tagTable(spannerSettings) ::
+            SpannerJournalInteractions.Schema.Deleted.deleteMetadataTable(spannerSettings) ::
             SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) ::
             EventProcessorStream.Schema.offsetStoreTable() ::
             Nil
