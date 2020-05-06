@@ -61,9 +61,8 @@ private[spanner] object SpannerJournalInteractions {
       val SerManifest = "ser_manifest" -> Type(TypeCode.STRING)
       val WriteTime = "write_time" -> Type(TypeCode.TIMESTAMP)
       val WriterUUID = "writer_uuid" -> Type(TypeCode.STRING)
-      val Tags = "tags" -> Type(TypeCode.ARRAY)
 
-      val Columns = List(PersistenceId, SeqNr, Event, SerId, SerManifest, WriteTime, WriterUUID, Tags).map(_._1)
+      val Columns = List(PersistenceId, SeqNr, Event, SerId, SerManifest, WriteTime, WriterUUID).map(_._1)
 
       val formatter = (new DateTimeFormatterBuilder)
         .appendOptional(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
@@ -73,52 +72,66 @@ private[spanner] object SpannerJournalInteractions {
         .toFormatter
         .withZone(ZoneOffset.UTC)
 
-      val NoOffset = formatter.format(Instant.ofEpochMilli(0))
+      val NoOffset = SpannerUtils.unixTimestampMillisToSpanner(0L)
+
+      val ReplayTypes = Map(
+        "persistence_id" -> Type(TypeCode.STRING),
+        "from_sequence_nr" -> Type(TypeCode.INT64),
+        "to_sequence_nr" -> Type(TypeCode.INT64),
+        "max" -> Type(TypeCode.INT64)
+      )
 
       def deserializeRow(serialization: Serialization, values: Seq[Value]): (PersistentRepr, String) = {
-        // FIXME indexed look up on a seq
-        val persistenceId = values.head.getStringValue
-        val sequenceNr = values(1).getStringValue.toLong
-        val payloadAsString = values(2).getStringValue
-        val serId = values(3).getStringValue.toInt
-        val serManifest = values(4).getStringValue
+        val iterator = values.iterator
+        val persistenceId = iterator.next.getStringValue
+        val sequenceNr = iterator.next.getStringValue.toLong
+        val payloadAsString = iterator.next.getStringValue
+        val serId = iterator.next.getStringValue.toInt
+        val serManifest = iterator.next.getStringValue
         // keep this in the offset as the original format rather than do any conversions
-        val writeOriginal = values(5).getStringValue
-        val writeTimestamp: Instant = Instant.from(formatter.parse(writeOriginal))
-        val writerUuid = values(6).getStringValue
+        val writeOriginal = iterator.next.getStringValue
+        val writeTimestamp: Long = SpannerUtils.spannerTimestampToUnixMillis(writeOriginal)
+        val writerUuid = iterator.next.getStringValue
         val payloadAsBytes = Base64.getDecoder.decode(payloadAsString)
         val payload = serialization.deserialize(payloadAsBytes, serId, serManifest).get
         (
-          PersistentRepr(
-            payload,
-            sequenceNr,
-            persistenceId,
-            writerUuid = writerUuid
-          ).withTimestamp(writeTimestamp.toEpochMilli),
+          PersistentRepr(payload, sequenceNr, persistenceId, writerUuid = writerUuid)
+            .withTimestamp(writeTimestamp),
           writeOriginal
         )
       }
     }
 
-    val ReplayTypes = Map(
-      "persistence_id" -> Type(TypeCode.STRING),
-      "from_sequence_nr" -> Type(TypeCode.INT64),
-      "to_sequence_nr" -> Type(TypeCode.INT64),
-      "max" -> Type(TypeCode.INT64)
-    )
+    object Tags {
+      def tagTable(settings: SpannerSettings): String =
+        // weird formatting is for docs
+        s"""CREATE TABLE ${settings.eventTagTable} (
+      persistence_id STRING(MAX) NOT NULL,
+      sequence_nr INT64 NOT NULL,
+      tag STRING(MAX) NOT NULL
+) PRIMARY KEY (persistence_id, sequence_nr, tag),
+  INTERLEAVE IN PARENT ${settings.journalTable}
+      """
 
-    // weird formatting is for docs
-    def deleteMetadataTable(settings: SpannerSettings): String =
-      s"""CREATE TABLE ${settings.deletionsTable} (
+      val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
+      val SeqNr = "sequence_nr" -> Type(TypeCode.INT64)
+      val Tag = "tag" -> Type(TypeCode.STRING)
+
+      val Columns = List(PersistenceId, SeqNr, Tag).map(_._1)
+    }
+
+    object Deleted {
+      // weird formatting is for docs
+      def deleteMetadataTable(settings: SpannerSettings): String =
+        s"""CREATE TABLE ${settings.deletionsTable} (
     persistence_id STRING(MAX) NOT NULL,
     deleted_to INT64 NOT NULL,
 ) PRIMARY KEY (persistence_id)
 """
 
-    val DeleteStatementTypes: Map[String, Type] = Map(
-      "persistence_id" -> Type(TypeCode.STRING),
-      "sequence_nr" -> Type(TypeCode.INT64)
-    )
+      val DeleteStatementTypes: Map[String, Type] =
+        Map("persistence_id" -> Type(TypeCode.STRING), "sequence_nr" -> Type(TypeCode.INT64))
+    }
   }
 }
 
@@ -132,10 +145,7 @@ private[spanner] object SpannerJournalInteractions {
 private[spanner] class SpannerJournalInteractions(
     spannerGrpcClient: SpannerGrpcClient,
     journalSettings: SpannerSettings
-)(
-    implicit ec: ExecutionContext,
-    system: ActorSystem
-) {
+)(implicit ec: ExecutionContext, system: ActorSystem) {
   import SpannerJournalInteractions.Schema
   import Schema._
 
@@ -157,9 +167,8 @@ private[spanner] class SpannerJournalInteractions(
     s"DELETE FROM ${journalSettings.journalTable} where persistence_id = @persistence_id AND sequence_nr <= @sequence_nr"
 
   def writeEvents(events: Seq[SerializedWrite]): Future[Unit] = {
-    val mutations = events.map { sw =>
-      val serializedTags: List[Value] = sw.tags.map(s => Value(StringValue(s))).toList
-      Mutation(
+    val mutations = events.flatMap { sw =>
+      val eventMutation = Mutation(
         Mutation.Operation.Insert(
           Mutation.Write(
             journalSettings.journalTable,
@@ -174,14 +183,39 @@ private[spanner] class SpannerJournalInteractions(
                   Value(StringValue(sw.serManifest)),
                   // special value for a timestamp that gets the write timestamp
                   Value(StringValue("spanner.commit_timestamp()")),
-                  Value(StringValue(sw.writerUuid)),
-                  Value(Value.Kind.ListValue(ListValue(serializedTags)))
+                  Value(StringValue(sw.writerUuid))
                 )
               )
             )
           )
         )
       )
+      if (sw.tags.isEmpty) {
+        eventMutation :: Nil
+      } else {
+        val serializedTags: List[Mutation] = sw.tags.toList.map(
+          tagName =>
+            Mutation(
+              Mutation.Operation.Insert(
+                Mutation.Write(
+                  journalSettings.eventTagTable,
+                  Tags.Columns,
+                  List(
+                    ListValue(
+                      List(
+                        Value(StringValue(sw.persistenceId)),
+                        Value(StringValue(sw.sequenceNr.toString)), // ints and longs are StringValues :|
+                        Value(StringValue(tagName))
+                      )
+                    )
+                  )
+                )
+              )
+            )
+        )
+
+        eventMutation :: serializedTags
+      }
     }
 
     spannerGrpcClient.withSession { session =>
@@ -191,9 +225,7 @@ private[spanner] class SpannerJournalInteractions(
   }
 
   def readHighestSequenceNr(persistenceId: String, fromSequenceNr: Long): Future[Long] =
-    spannerGrpcClient.withSession(
-      implicit session => internalReadHighestSequenceNr(persistenceId, fromSequenceNr)
-    )
+    spannerGrpcClient.withSession(implicit session => internalReadHighestSequenceNr(persistenceId, fromSequenceNr))
 
   def deleteMessagesTo(persistenceId: String, toSequenceNr: Long): Future[Unit] =
     spannerGrpcClient.withSession { implicit session =>
@@ -201,10 +233,7 @@ private[spanner] class SpannerJournalInteractions(
 
       def params(to: Long) =
         Struct(
-          Map(
-            "persistence_id" -> Value(StringValue(persistenceId)),
-            "sequence_nr" -> Value(StringValue(to.toString))
-          )
+          Map("persistence_id" -> Value(StringValue(persistenceId)), "sequence_nr" -> Value(StringValue(to.toString)))
         )
       for {
         highestDeletedTo <- findHighestDeletedTo(persistenceId) // user may have passed in a smaller value than previously deleted
@@ -217,8 +246,8 @@ private[spanner] class SpannerJournalInteractions(
         }
         _ <- spannerGrpcClient.executeBatchDml(
           List(
-            (SqlDelete, params(toDeleteTo), DeleteStatementTypes),
-            (SqlDeleteInsertToDeletions, params(toDeleteTo), DeleteStatementTypes)
+            (SqlDelete, params(toDeleteTo), Deleted.DeleteStatementTypes),
+            (SqlDeleteInsertToDeletions, params(toDeleteTo), Deleted.DeleteStatementTypes)
           )
         )
       } yield ()
@@ -250,23 +279,17 @@ private[spanner] class SpannerJournalInteractions(
             )
           )
         ),
-        paramTypes = Schema.ReplayTypes
+        paramTypes = Schema.Journal.ReplayTypes
       )
       .runForeach(replayRow)
       .map(ConstantFun.scalaAnyToUnit)
   }
 
-  private def findHighestDeletedTo(persistenceId: String)(
-      implicit session: PooledSession
-  ): Future[Long] =
+  private def findHighestDeletedTo(persistenceId: String)(implicit session: PooledSession): Future[Long] =
     spannerGrpcClient
       .executeQuery(
         HighestDeleteSelectSql,
-        Struct(
-          Map(
-            Journal.PersistenceId._1 -> Value(StringValue(persistenceId))
-          )
-        ),
+        Struct(Map(Journal.PersistenceId._1 -> Value(StringValue(persistenceId)))),
         Map(Journal.PersistenceId)
       )
       .map { resultSet =>

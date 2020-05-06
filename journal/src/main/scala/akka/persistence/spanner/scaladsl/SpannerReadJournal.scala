@@ -18,7 +18,7 @@ import akka.persistence.query.scaladsl.{
 }
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset}
 import akka.persistence.spanner.internal.SpannerJournalInteractions.Schema
-import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension}
+import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension, SpannerJournalInteractions}
 import akka.persistence.spanner.{SpannerOffset, SpannerSettings}
 import akka.serialization.SerializationExtension
 import akka.stream.scaladsl
@@ -28,6 +28,7 @@ import com.google.protobuf.struct.{Struct, Value}
 import com.google.spanner.v1.{Type, TypeCode}
 import com.typesafe.config.Config
 import org.slf4j.LoggerFactory
+
 import scala.collection.immutable
 
 object SpannerReadJournal {
@@ -56,7 +57,9 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   private val grpcClient = SpannerGrpcClientExtension(system.toTyped).clientFor(sharedConfigPath)
 
   private val EventsByTagSql =
-    s"SELECT ${Schema.Journal.Columns.mkString(",")} from ${settings.journalTable} WHERE @tag IN UNNEST(tags) AND write_time >= @write_time ORDER BY write_time, persistence_id, sequence_nr "
+    s"""SELECT ${SpannerJournalInteractions.Schema.Journal.Columns.map(column => s"j.$column").mkString(", ")}
+        FROM ${settings.journalTable} AS j JOIN ${settings.eventTagTable} AS t ON j.persistence_id = t.persistence_id AND j.sequence_nr = t.sequence_nr  
+        WHERE @tag = t.tag AND j.write_time >= @write_time ORDER BY j.write_time, j.persistence_id, j.sequence_nr """
 
   private val PersistenceIdsQuery =
     s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
@@ -72,16 +75,10 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
         EventsByTagSql,
         params = Some(
           Struct(
-            Map(
-              "tag" -> Value(StringValue(tag)),
-              "write_time" -> Value(StringValue(spannerOffset.commitTimestamp))
-            )
+            Map("tag" -> Value(StringValue(tag)), "write_time" -> Value(StringValue(spannerOffset.commitTimestamp)))
           )
         ),
-        paramTypes = Map(
-          "tag" -> Type(TypeCode.STRING),
-          "write_time" -> Type(TypeCode.TIMESTAMP)
-        )
+        paramTypes = Map("tag" -> Type(TypeCode.STRING), "write_time" -> Type(TypeCode.TIMESTAMP))
       )
       .statefulMapConcat(deserializeAndAddOffset(spannerOffset))
       .mapMaterializedValue(_ => NotUsed)
@@ -188,8 +185,8 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   ): () => Seq[Value] => immutable.Iterable[EventEnvelope] = { () =>
     var currentTimestamp: String = spannerOffset.commitTimestamp
     var currentSequenceNrs: Map[String, Long] = spannerOffset.seen
-    values => {
-      val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, values)
+    row => {
+      val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, row)
       if (commitTimestamp == currentTimestamp) {
         // has this already been seen?
         if (currentSequenceNrs.get(pr.persistenceId).exists(_ >= pr.sequenceNr)) {

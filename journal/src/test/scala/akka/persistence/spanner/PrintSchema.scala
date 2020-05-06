@@ -27,7 +27,8 @@ object PrintSchema {
     withWriter("./target/journal-tables.txt") { pw =>
       pw.println("//#journal-tables")
       pw.println(SpannerJournalInteractions.Schema.Journal.journalTable(settings))
-      pw.println(SpannerJournalInteractions.Schema.deleteMetadataTable(settings))
+      pw.println(SpannerJournalInteractions.Schema.Tags.tagTable(settings))
+      pw.println(SpannerJournalInteractions.Schema.Deleted.deleteMetadataTable(settings))
       pw.println("//#journal-tables")
     }
 

@@ -74,7 +74,7 @@ object SpannerSpec {
       akka.loglevel = DEBUG
       akka.actor {
         serialization-bindings {
-          "akka.persistence.spanner.CborSerializable" = jackson-cbor 
+          "akka.persistence.spanner.CborSerializable" = jackson-cbor
         }
       }
       akka.persistence.journal.plugin = "akka.persistence.spanner.journal"
@@ -84,12 +84,12 @@ object SpannerSpec {
       akka.actor.warn-about-java-serializer-usage = off
       #instance-config
       akka.persistence.spanner {
-        database = ${databaseName.toLowerCase} 
+        database = ${databaseName.toLowerCase}
         instance = akka
         project = akka-team
       }
       #instance-config
-      
+
       query {
         refresh-interval = 500ms
       }
@@ -184,10 +184,8 @@ trait SpannerLifecycle
         log.info("Dropping pre-existing database {}", spannerSettings.fullyQualifiedDatabase)
         adminClient.dropDatabase(DropDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
         eventually {
-          val fail = adminClient
-            .getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase))
-            .failed
-            .futureValue
+          val fail =
+            adminClient.getDatabase(GetDatabaseRequest(spannerSettings.fullyQualifiedDatabase)).failed.futureValue
           databaseNotFound(fail) should ===(true)
         }
       }
@@ -203,12 +201,16 @@ trait SpannerLifecycle
           parent = spannerSettings.parent,
           s"CREATE DATABASE ${spannerSettings.database}",
           SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
-          SpannerJournalInteractions.Schema.deleteMetadataTable(spannerSettings) ::
+          SpannerJournalInteractions.Schema.Tags.tagTable(spannerSettings) ::
+          SpannerJournalInteractions.Schema.Deleted.deleteMetadataTable(spannerSettings) ::
           (if (withSnapshotStore)
              SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
            else Nil)
         )
       )
+      .onFailure {
+        case ex => ex.printStackTrace()
+      }
     // wait for db to be ready before testing
     eventually {
       adminClient

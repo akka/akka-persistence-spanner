@@ -55,6 +55,7 @@ private[spanner] final class SpannerSettings(config: Config) {
   val fullyQualifiedDatabase = s"$parent/databases/$database"
   val useAuth = config.getBoolean("use-auth")
   val journalTable = config.getString("journal.table")
+  val eventTagTable = config.getString("journal.event-tag-table")
   val deletionsTable = config.getString("journal.deletions-table")
   val grpcClient = config.getString("grpc-client")
   val maxWriteRetries = config.getInt("max-write-retries")
