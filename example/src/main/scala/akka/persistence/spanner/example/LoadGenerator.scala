@@ -1,6 +1,6 @@
 package akka.persistence.spanner.example
 
-import akka.actor.typed.{ActorRef, Behavior}
+import akka.actor.typed.{ ActorRef, Behavior }
 import akka.actor.typed.scaladsl.Behaviors
 import akka.cluster.sharding.typed.ShardingEnvelope
 import com.typesafe.config.Config
@@ -12,10 +12,13 @@ import akka.util.JavaDurationConverters._
 object LoadGenerator {
   object Settings {
     def apply(config: Config): Settings =
-      Settings(config.getInt("persistence-ids"), config.getDuration("load-tick-duration").asScala)
+      Settings(
+        config.getInt("persistence-ids"),
+        config.getDuration("load-tick-duration").asScala,
+        config.getInt("events-per-tick"))
   }
 
-  case class Settings(nrPersistenceIds: Int, tickDuration: FiniteDuration)
+  case class Settings(nrPersistenceIds: Int, tickDuration: FiniteDuration, eventsPerTick: Int)
 
   sealed trait Command
   final case class Start(duration: FiniteDuration) extends Command
@@ -32,14 +35,15 @@ object LoadGenerator {
             timers.startSingleTimer(Stop, duration)
             Behaviors.same
           case Tick() =>
-            ctx.log.info("Sending event")
-            ref ! ShardingEnvelope(
-              s"p${Random.nextInt(settings.nrPersistenceIds)}",
-              ConfigurablePersistentActor.Event()
-            )
+            ctx.log.info("Sending [{}] event(s)", settings.eventsPerTick)
+            (0 to settings.eventsPerTick).foreach { _ =>
+              ref ! ShardingEnvelope(
+                s"p${Random.nextInt(settings.nrPersistenceIds)}",
+                ConfigurablePersistentActor.Event())
+            }
             Behaviors.same
           case Stop =>
-            Behaviors.same
+            Behaviors.stopped
         }
       }
     }

@@ -5,6 +5,8 @@
         </encoder>
     </appender>
 
+    <logger name="akka.persistence.spanner.SessionPool.stats" level="DEBUG" />
+
     <appender name="ASYNC" class="ch.qos.logback.classic.AsyncAppender">
         <queueSize>8192</queueSize>
         <neverBlock>true</neverBlock>

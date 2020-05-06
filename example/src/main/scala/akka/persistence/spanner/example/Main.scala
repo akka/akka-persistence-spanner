@@ -24,10 +24,8 @@ object Main {
       ctx =>
         val cluster = Cluster(ctx.system)
         ctx.log.info("Starting up example")
-        if (cluster.selfMember.hasRole("read")) {
-          // FIXME create offset store
-        }
         if (cluster.selfMember.hasRole("write")) {
+          // note: this creates offset store as well
           ctx.pipeToSelf(initSpannerInstance(ctx.system))(identity)
         }
 

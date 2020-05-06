@@ -3,7 +3,7 @@ package akka.persistence.spanner.example
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.dispatch.ExecutionContexts
-import akka.persistence.query.{NoOffset, Offset, PersistenceQuery}
+import akka.persistence.query.{EventEnvelope, NoOffset, Offset, PersistenceQuery}
 import akka.persistence.spanner.SpannerOffset
 import akka.persistence.spanner.internal.SpannerGrpcClientExtension
 import akka.persistence.spanner.scaladsl.SpannerReadJournal
@@ -18,6 +18,7 @@ import com.google.spanner.v1.{Mutation, Type, TypeCode}
 import org.HdrHistogram.Histogram
 import org.slf4j.{Logger, LoggerFactory}
 
+import scala.collection.mutable
 import scala.concurrent.duration._
 import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
@@ -95,12 +96,27 @@ class EventProcessorStream[Event: ClassTag](
       .runWith(Sink.ignore)
 
   private def processEventsByTag(offset: Offset, histogram: Histogram): Source[Offset, NotUsed] =
-    query.eventsByTag(tag, offset).mapAsync(1) { eventEnvelope =>
+    query.eventsByTag(tag, offset)
+    .statefulMapConcat { () =>
+      val previous = mutable.HashMap[String, EventEnvelope]()
+
+      { ee =>
+        previous.get(ee.persistenceId) match {
+          case None => // first time we se e this pid
+          case Some(prev) =>
+            if (prev.sequenceNr != ee.sequenceNr - 1)
+              log.errorN("Out or order sequence nr. Previous [{}]. Current [{}]", prev, ee)
+        }
+        previous.put(ee.persistenceId, ee)
+        ee :: Nil
+      }
+    }.map { eventEnvelope =>
       eventEnvelope.event match {
         case event: Event => {
           // Times from different nodes, take with a pinch of salt
           val latency = System.currentTimeMillis() - eventEnvelope.timestamp
-          histogram.recordValue(latency)
+          if (latency < histogram.getMaxValue)
+            histogram.recordValue(latency)
           log.debugN(
             "Tag {} Event {} persistenceId {}, sequenceNr {}. Latency {}",
             tag,
@@ -109,10 +125,10 @@ class EventProcessorStream[Event: ClassTag](
             eventEnvelope.sequenceNr,
             latency
           )
-          Future.successful(Done)
-        }.map(_ => eventEnvelope.offset)
+          eventEnvelope.offset
+        }
         case other =>
-          Future.failed(new IllegalArgumentException(s"Unexpected event [${other.getClass.getName}]"))
+          throw new IllegalArgumentException(s"Unexpected event [${other.getClass.getName}]")
       }
     }
 

@@ -19,7 +19,9 @@ object ConfigurablePersistentActor {
 
   final case class State(eventsProcessed: Long) extends CborSerializable
 
-  def apply(settings: Settings, persistenceId: String): Behavior[Event] =
+  def apply(settings: Settings, persistenceId: String): Behavior[Event] = {
+    // use pid hash to get all events for an actor in the same tag
+    val tags = Set("tag-" + math.abs(persistenceId.hashCode() % settings.nrTags))
     Behaviors.setup { ctx =>
       EventSourcedBehavior[Event, Event, State](
         persistenceId = PersistenceId.ofUniqueId(persistenceId),
@@ -29,6 +31,7 @@ object ConfigurablePersistentActor {
           Effect.persist(event)
         },
         (state, _) => state.copy(eventsProcessed = state.eventsProcessed + 1)
-      ).withTagger(event => Set("tag-" + math.abs(event.hashCode() % settings.nrTags)))
+      ).withTagger(_ => tags)
     }
+  }
 }
