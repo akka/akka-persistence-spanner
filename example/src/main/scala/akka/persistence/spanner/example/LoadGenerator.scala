@@ -43,6 +43,7 @@ object LoadGenerator {
             }
             Behaviors.same
           case Stop =>
+            ctx.log.info("Ending load generation")
             Behaviors.stopped
         }
       }

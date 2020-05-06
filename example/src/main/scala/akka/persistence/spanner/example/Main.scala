@@ -12,10 +12,9 @@ import akka.persistence.spanner.internal.{ SpannerJournalInteractions, SpannerSn
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.spanner.admin.database.v1.{ CreateDatabaseRequest, DatabaseAdminClient }
 import com.google.spanner.admin.instance.v1.{ CreateInstanceRequest, InstanceAdminClient }
-import com.google.spanner.v1.SpannerClient
 import io.grpc.auth.MoreCallCredentials
 
-import scala.concurrent.{ Await, Future }
+import scala.concurrent.Future
 import scala.concurrent.duration._
 
 object Main {

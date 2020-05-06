@@ -89,8 +89,10 @@ class EventProcessorStream[Event: ClassTag](
       .eventsByTag(tag, offset)
       .statefulMapConcat { () =>
         val previous = mutable.HashMap[String, EventEnvelope]()
+        var counter = 0L
 
         { ee =>
+          counter += 1
           previous.get(ee.persistenceId) match {
             case None => // first time we se e this pid
             case Some(prev) =>
@@ -98,6 +100,7 @@ class EventProcessorStream[Event: ClassTag](
                 log.errorN("Out or order sequence nr. Previous [{}]. Current [{}]", prev, ee)
           }
           previous.put(ee.persistenceId, ee)
+          if (counter % 100 == 0) log.info("Successfully processed [{}] events for tag [{}]", counter, tag)
           ee :: Nil
         }
       }
@@ -108,6 +111,7 @@ class EventProcessorStream[Event: ClassTag](
             val latency = System.currentTimeMillis() - eventEnvelope.timestamp
             if (latency < histogram.getMaxValue)
               histogram.recordValue(latency)
+            else log.warn("Filtering out latency [{}] for [{}] to not break histogram", latency, eventEnvelope)
             log.debugN(
               "Tag {} Event {} persistenceId {}, sequenceNr {}. Latency {}",
               tag,

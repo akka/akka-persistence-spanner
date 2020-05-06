@@ -34,7 +34,7 @@ The first node can run with the default ports for remoting and akka management. 
  and the role must be specified as JVM options:
  
 ```
-sbt -Dconfig.resource=local-spanner.conf -Dakka.cluster.roles.0=write "example/run"
+sbt -Dconfig.resource=local.conf -Dakka.cluster.roles.0=write "example/run"
 ```
  
 Each node needs its akka management and remoting port overriden. For the cluster to join the default settings with `local.conf`
