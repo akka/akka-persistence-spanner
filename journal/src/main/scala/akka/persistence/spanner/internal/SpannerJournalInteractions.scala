@@ -107,7 +107,7 @@ private[spanner] object SpannerJournalInteractions {
            |  tag STRING(MAX) NOT NULL,
            |  write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
            |) PRIMARY KEY (persistence_id, sequence_nr, tag),
-           |INTERLEAVE IN PARENT ${settings.journalTable}""".stripMargin
+           |INTERLEAVE IN PARENT ${settings.journalTable} ON DELETE CASCADE""".stripMargin
 
       def eventsByTagIndex(settings: SpannerSettings): String =
         s"""CREATE INDEX ${settings.eventTagTable}_tag_and_offset
