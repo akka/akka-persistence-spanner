@@ -9,6 +9,7 @@ object Dependencies {
   val Scala213 = "2.13.1"
 
   val AkkaVersion = System.getProperty("override.akka.version", "2.6.4")
+  val AkkaVersionInDocs = AkkaVersion.take(3)
   // for example
   val AkkaHttpVersion = "10.1.11"
   val AkkaManagementVersion = "1.0.6"
