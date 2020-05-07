@@ -6,25 +6,20 @@ package akka.persistence.spanner.internal
 
 import java.util.Base64
 
+import akka.actor.typed.scaladsl.LoggerOps
 import akka.actor.{ActorSystem, ExtendedActorSystem}
 import akka.annotation.InternalApi
-import akka.dispatch.ExecutionContexts
-import akka.event.Logging
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SpannerUtils.{spannerTimestampToUnixMillis, unixTimestampMillisToSpanner}
 import akka.persistence.{SelectedSnapshot, SnapshotMetadata, SnapshotSelectionCriteria}
 import akka.serialization.{Serialization, SerializationExtension, Serializers}
-import akka.util.ConstantFun
 import com.google.protobuf.struct.Value.Kind.StringValue
 import com.google.protobuf.struct.{ListValue, Struct, Value}
 import com.google.spanner.v1.{Mutation, Type, TypeCode}
-import org.slf4j.LoggerFactory
-import akka.actor.typed.scaladsl.LoggerOps
-import com.google.rpc.Code.ALREADY_EXISTS
 import io.grpc.{Status, StatusRuntimeException}
+import org.slf4j.LoggerFactory
 
 import scala.concurrent.{ExecutionContext, Future}
-import scala.util.control.NonFatal
 
 /**
  * INTERNAL API

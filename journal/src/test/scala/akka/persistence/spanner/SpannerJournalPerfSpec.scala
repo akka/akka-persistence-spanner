@@ -7,6 +7,7 @@ package akka.persistence.spanner
 import akka.persistence.CapabilityFlag
 import akka.persistence.journal.JournalPerfSpec
 import com.typesafe.config.ConfigFactory
+
 import scala.concurrent.duration._
 
 object SpannerJournalPerfSpec {

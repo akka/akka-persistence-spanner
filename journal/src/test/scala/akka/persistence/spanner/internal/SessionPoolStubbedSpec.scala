@@ -8,23 +8,8 @@ import akka.Done
 import akka.actor.testkit.typed.TestException
 import akka.actor.testkit.typed.scaladsl.{LogCapturing, ScalaTestWithActorTestKit, TestProbe}
 import akka.persistence.spanner.SpannerSettings
-import akka.persistence.spanner.internal.SessionPool.{
-  GetSession,
-  PoolBusy,
-  PoolShuttingDown,
-  PooledSession,
-  ReleaseSession,
-  Response,
-  Shutdown
-}
-import akka.persistence.spanner.internal.SessionPoolStubbedSpec.{
-  BatchSessionCreateInvocation,
-  CreateSessionInvocation,
-  DeleteSessionInvocation,
-  ExecuteSqlInvocation,
-  Invocation,
-  StubbedSpannerClient
-}
+import akka.persistence.spanner.internal.SessionPool._
+import akka.persistence.spanner.internal.SessionPoolStubbedSpec._
 import com.google.protobuf.empty.Empty
 import com.google.spanner.v1._
 import com.typesafe.config.ConfigFactory

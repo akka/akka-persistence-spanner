@@ -10,7 +10,6 @@ import akka.persistence.spanner.TestActors.Persister.PersistMe
 import akka.persistence.spanner.scaladsl.SpannerReadJournal
 import akka.stream.scaladsl.Sink
 import akka.stream.testkit.scaladsl.TestSink
-import org.scalatest.BeforeAndAfterEach
 
 class PersistenceIdsQuerySpec extends SpannerSpec {
   val query = PersistenceQuery(testKit.system)

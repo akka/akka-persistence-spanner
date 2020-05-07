@@ -8,17 +8,17 @@ import java.util.concurrent.ConcurrentHashMap
 
 import akka.Done
 import akka.actor.CoordinatedShutdown
+import akka.actor.typed.scaladsl.adapter._
 import akka.actor.typed.{ActorSystem, Extension, ExtensionId}
 import akka.annotation.InternalApi
 import akka.grpc.GrpcClientSettings
 import akka.persistence.spanner.SpannerSettings
+import akka.util.ccompat.JavaConverters._
 import com.google.auth.oauth2.GoogleCredentials
 import com.google.spanner.v1.SpannerClient
 import io.grpc.auth.MoreCallCredentials
-import akka.actor.typed.scaladsl.adapter._
 
 import scala.concurrent.{ExecutionContext, Future}
-import akka.util.ccompat.JavaConverters._
 
 private[spanner] object SpannerGrpcClientExtension extends ExtensionId[SpannerGrpcClientExtension] {
   override def createExtension(system: ActorSystem[_]): SpannerGrpcClientExtension =

@@ -4,7 +4,7 @@
 
 package akka.persistence.spanner.internal
 
-import java.time.{Instant, ZoneOffset}
+import java.time.ZoneOffset
 import java.time.format.{DateTimeFormatter, DateTimeFormatterBuilder}
 import java.util.Base64
 
@@ -12,8 +12,8 @@ import akka.actor.ActorSystem
 import akka.annotation.InternalApi
 import akka.event.Logging
 import akka.persistence.PersistentRepr
-import akka.persistence.spanner.internal.SessionPool.PooledSession
 import akka.persistence.spanner.SpannerSettings
+import akka.persistence.spanner.internal.SessionPool.PooledSession
 import akka.persistence.spanner.internal.SpannerJournalInteractions.SerializedWrite
 import akka.serialization.Serialization
 import akka.util.ConstantFun

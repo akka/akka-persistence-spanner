@@ -5,8 +5,6 @@
 package akka.persistence.spanner.internal
 
 import java.time.Instant
-import java.time.format.DateTimeFormatter
-import java.time.temporal.TemporalField
 
 import akka.annotation.InternalApi
 

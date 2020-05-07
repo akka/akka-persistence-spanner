@@ -5,13 +5,12 @@
 package akka.persistence.spanner.internal
 
 import akka.Done
-import akka.actor.typed.scaladsl.{AbstractBehavior, ActorContext, Behaviors, TimerScheduler}
-import akka.actor.typed.{ActorRef, Behavior, PostStop, PreRestart, Signal}
-import akka.actor.typed.scaladsl.LoggerOps
-import akka.util.PrettyDuration._
+import akka.actor.typed.scaladsl.{AbstractBehavior, ActorContext, Behaviors, LoggerOps, TimerScheduler}
+import akka.actor.typed._
 import akka.annotation.InternalApi
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
+import akka.util.PrettyDuration._
 import com.google.spanner.v1._
 import io.grpc.StatusRuntimeException
 import org.slf4j.LoggerFactory

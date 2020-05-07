@@ -8,14 +8,7 @@ import akka.NotUsed
 import akka.actor.ExtendedActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.actor.typed.scaladsl.adapter._
-import akka.persistence.query.scaladsl.{CurrentEventsByPersistenceIdQuery, EventsByPersistenceIdQuery}
-import akka.persistence.query.scaladsl.{
-  CurrentEventsByTagQuery,
-  CurrentPersistenceIdsQuery,
-  EventsByTagQuery,
-  PersistenceIdsQuery,
-  ReadJournal
-}
+import akka.persistence.query.scaladsl._
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset}
 import akka.persistence.spanner.internal.SpannerJournalInteractions.Schema
 import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension, SpannerJournalInteractions}

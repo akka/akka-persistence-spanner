@@ -6,8 +6,7 @@ package akka.persistence.spanner.internal
 
 import java.util.concurrent.atomic.AtomicInteger
 
-import akka.actor.testkit.typed.scaladsl.LogCapturing
-import akka.actor.testkit.typed.scaladsl.ScalaTestWithActorTestKit
+import akka.actor.testkit.typed.scaladsl.{LogCapturing, ScalaTestWithActorTestKit}
 import akka.actor.typed.ActorRef
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool.PooledSession

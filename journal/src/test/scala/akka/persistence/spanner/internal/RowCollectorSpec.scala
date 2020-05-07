@@ -7,12 +7,12 @@ package akka.persistence.spanner.internal
 import akka.actor.ActorSystem
 import akka.stream.scaladsl.{Sink, Source}
 import akka.testkit.TestKit
-import com.google.protobuf.struct.{ListValue, Value}
 import com.google.protobuf.struct.Value.Kind
+import com.google.protobuf.struct.{ListValue, Value}
 import com.google.spanner.v1.{PartialResultSet, ResultSetMetadata, StructType}
 import org.scalatest.concurrent.ScalaFutures
 import org.scalatest.matchers.must.Matchers
-import org.scalatest.wordspec.{AnyWordSpec, AnyWordSpecLike}
+import org.scalatest.wordspec.AnyWordSpecLike
 
 class RowCollectorSpec
     extends TestKit(ActorSystem(classOf[RowCollectorSpec].getSimpleName))

@@ -6,11 +6,9 @@ package akka.persistence.spanner
 
 import akka.actor.ActorSystem
 import akka.actor.typed.scaladsl.adapter._
-import akka.event.Logging
 import akka.persistence.snapshot.SnapshotStore
 import akka.persistence.spanner.internal.{SpannerGrpcClientExtension, SpannerSnapshotInteractions}
 import akka.persistence.{SelectedSnapshot, SnapshotMetadata, SnapshotSelectionCriteria}
-import akka.serialization.{Serialization, SerializationExtension}
 import com.typesafe.config.Config
 
 import scala.concurrent.{ExecutionContext, Future}

@@ -8,8 +8,8 @@ import akka.NotUsed
 import akka.annotation.InternalApi
 import akka.persistence.spanner.internal.ContinuousQuery.NextQuery
 import akka.stream.scaladsl.Source
+import akka.stream.stage._
 import akka.stream.{Attributes, Outlet, SourceShape}
-import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler, TimerGraphStageLogicWithLogging}
 import akka.util.OptionVal
 
 import scala.concurrent.duration._

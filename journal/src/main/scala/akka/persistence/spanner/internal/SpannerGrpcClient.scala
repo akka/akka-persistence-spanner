@@ -6,9 +6,8 @@ package akka.persistence.spanner.internal
 
 import java.util.concurrent.atomic.AtomicLong
 
-import akka.{Done, NotUsed}
 import akka.actor.typed.scaladsl.AskPattern._
-import akka.actor.typed.scaladsl.Behaviors
+import akka.actor.typed.scaladsl.{Behaviors, LoggerOps}
 import akka.actor.typed.{ActorRef, ActorSystem, SupervisorStrategy}
 import akka.annotation.InternalApi
 import akka.dispatch.ExecutionContexts
@@ -16,6 +15,7 @@ import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
 import akka.stream.scaladsl.Source
 import akka.util.{ConstantFun, Timeout}
+import akka.{Done, NotUsed}
 import com.google.protobuf.ByteString
 import com.google.protobuf.struct.{Struct, Value}
 import com.google.rpc.Code
@@ -23,7 +23,6 @@ import com.google.spanner.v1.CommitRequest.Transaction
 import com.google.spanner.v1._
 import io.grpc.StatusRuntimeException
 import org.slf4j.LoggerFactory
-import akka.actor.typed.scaladsl.LoggerOps
 
 import scala.concurrent.{Future, Promise, TimeoutException}
 import scala.util.control.NoStackTrace

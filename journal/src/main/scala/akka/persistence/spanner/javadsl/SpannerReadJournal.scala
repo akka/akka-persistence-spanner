@@ -5,16 +5,8 @@
 package akka.persistence.spanner.javadsl
 
 import akka.NotUsed
+import akka.persistence.query.javadsl._
 import akka.persistence.query.{EventEnvelope, Offset}
-import akka.persistence.query.javadsl.{
-  CurrentEventsByPersistenceIdQuery,
-  CurrentEventsByTagQuery,
-  CurrentPersistenceIdsQuery,
-  EventsByPersistenceIdQuery,
-  EventsByTagQuery,
-  PersistenceIdsQuery,
-  ReadJournal
-}
 import akka.persistence.spanner.scaladsl
 import akka.stream.javadsl.Source
 

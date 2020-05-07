@@ -11,9 +11,9 @@ import akka.stream.scaladsl.{Sink, Source}
 import akka.stream.testkit.scaladsl.TestSink
 import com.typesafe.config.ConfigFactory
 import org.scalatest.concurrent.ScalaFutures
+import org.scalatest.wordspec.AnyWordSpecLike
 
 import scala.concurrent.duration._
-import org.scalatest.wordspec.AnyWordSpecLike
 
 class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseString("""
                                                                                          akka.loglevel = DEBUG
