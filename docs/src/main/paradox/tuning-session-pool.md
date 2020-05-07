@@ -6,10 +6,10 @@ Each spanner transaction, read or write, needs to be done in the context of a se
 The default session pool size is 5, which limits the number of concurrent reads and writes to Spanner.
 This value will need to be increased if you use-case has a large number of concurrent writes or reads.
 
-Sessions are kept alive indefinitely. A dynamic session pool is planned for future versions of the plugin so.
+Sessions are kept alive indefinitely. Support for dynamic resizing is tracked in [issue 13](https://github.com/akka/akka-persistence-spanner/issues/13).
 
-The maximum value is 100, set by Spanner. Future versions of the plugin may create multiple gRPC clients to allow
-more than 100 sessions at a time.
+The maximum value is 100, set by Spanner. [Future versions of the plugin may create multiple gRPC clients to allow
+more than 100 sessions at a time](https://github.com/akka/akka-persistence-spanner/issues/44).
 
 ## Session configuration 
 
