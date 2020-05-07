@@ -101,7 +101,6 @@ private[spanner] object SpannerJournalInteractions {
 
     object Tags {
       def tagTable(settings: SpannerSettings): String =
-        // weird formatting is for docs
         s"""CREATE TABLE ${settings.eventTagTable} (
            |  persistence_id STRING(MAX) NOT NULL,
            |  sequence_nr INT64 NOT NULL,
@@ -113,8 +112,8 @@ private[spanner] object SpannerJournalInteractions {
       def eventsByTagIndex(settings: SpannerSettings): String =
         s"""CREATE INDEX ${settings.eventTagTable}_tag_and_offset
            |ON ${settings.eventTagTable} (
-           |	tag,
-           |	write_time
+           |  tag,
+           |  write_time
            |)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
@@ -126,13 +125,11 @@ private[spanner] object SpannerJournalInteractions {
     }
 
     object Deleted {
-      // weird formatting is for docs
       def deleteMetadataTable(settings: SpannerSettings): String =
         s"""CREATE TABLE ${settings.deletionsTable} (
-    persistence_id STRING(MAX) NOT NULL,
-    deleted_to INT64 NOT NULL,
-) PRIMARY KEY (persistence_id)
-"""
+           |  persistence_id STRING(MAX) NOT NULL,
+           |  deleted_to INT64 NOT NULL,
+           |) PRIMARY KEY (persistence_id)""".stripMargin
 
       val DeleteStatementTypes: Map[String, Type] =
         Map("persistence_id" -> Type(TypeCode.STRING), "sequence_nr" -> Type(TypeCode.INT64))

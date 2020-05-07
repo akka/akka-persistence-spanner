@@ -33,17 +33,15 @@ import scala.util.control.NonFatal
 private[spanner] object SpannerSnapshotInteractions {
   object Schema {
     object Snapshots {
-      // weird formatting is for docs
       def snapshotTable(settings: SpannerSettings): String =
         s"""CREATE TABLE ${settings.snapshotsTable} (
-  persistence_id STRING(MAX) NOT NULL,
-  sequence_nr INT64 NOT NULL,
-  timestamp TIMESTAMP NOT NULL,
-  ser_id INT64 NOT NULL,
-  ser_manifest STRING(MAX) NOT NULL,
-  snapshot BYTES(MAX)
-) PRIMARY KEY (persistence_id, sequence_nr) 
-"""
+           |  persistence_id STRING(MAX) NOT NULL,
+           |  sequence_nr INT64 NOT NULL,
+           |  timestamp TIMESTAMP NOT NULL,
+           |  ser_id INT64 NOT NULL,
+           |  ser_manifest STRING(MAX) NOT NULL,
+           |  snapshot BYTES(MAX)
+           |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
       val SeqNr = "sequence_nr" -> Type(TypeCode.INT64)
