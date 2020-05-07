@@ -18,3 +18,12 @@ more than 100 sessions at a time.
 ## gRPC client configuration
 
 @@snip [reference.conf](/journal/src/main/resources/reference.conf) { #grpc  }
+
+See the [gRPC documentation](https://doc.akka.io/docs/akka-grpc/current/client/configuration.html#by-configuration) for configuring the client.
+
+### TLS
+
+You can override the client's gRPC`ssl-config` section
+in `akka.grpc.client.spanner-client`.
+The [Lightbend SSL Config's documention](https://lightbend.github.io/ssl-config/) for more details.
+
