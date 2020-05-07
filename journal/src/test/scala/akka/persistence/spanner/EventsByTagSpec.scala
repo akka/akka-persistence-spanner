@@ -162,10 +162,13 @@ class EventsByTagSpec extends SpannerSpec {
 
       for (i <- 21 to 40) {
         tagger ! WithTags(s"e-$i", tags, probe.ref)
-        probe.expectMessage(10.seconds, Done)
+        // make sure the query doesn't get an element in its buffer with nothing to take it
+        // resulting in it not finishing the query and giving up the session
+        result.request(1)
+        probe.expectMessage(Done)
       }
 
-      result.request(30)
+      result.request(1)
 
       for (i <- 21 to 40) {
         val expectedEvent = s"e-$i"
