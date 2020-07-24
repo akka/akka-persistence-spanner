@@ -69,7 +69,7 @@ object SpannerSpec {
     reduced.head.replaceFirst(""".*\.""", "").replaceAll("[^a-zA-Z_0-9]", "_")
   }
 
-  def config(databaseName: String): Config = {
+  def config(databaseName: String, replicatedMetaEnabled: Boolean = false): Config = {
     val c = ConfigFactory.parseString(s"""
       akka.loglevel = DEBUG
       akka.actor {
@@ -88,6 +88,7 @@ object SpannerSpec {
         database = ${databaseName.toLowerCase}
         instance = akka
         project = akka-team
+        with-replication-meta = $replicatedMetaEnabled
       }
       #instance-config
 
@@ -124,10 +125,11 @@ trait SpannerLifecycle
     with ScalaFutures
     with Matchers
     with Eventually { self =>
+  def replicatedMetaEnabled: Boolean = false
   def databaseName: String
   def shouldDumpRows: Boolean = true
 
-  lazy val testKit = ActorTestKit(SpannerSpec.config(databaseName))
+  lazy val testKit = ActorTestKit(SpannerSpec.config(databaseName, replicatedMetaEnabled))
 
   implicit val ec = testKit.system.executionContext
   implicit val defaultPatience = PatienceConfig(timeout = Span(5, Seconds), interval = Span(5, Millis))

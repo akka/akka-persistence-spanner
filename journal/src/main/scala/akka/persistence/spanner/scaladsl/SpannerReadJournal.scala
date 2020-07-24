@@ -8,6 +8,7 @@ import akka.NotUsed
 import akka.actor.ExtendedActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.actor.typed.scaladsl.adapter._
+import akka.persistence.PersistentRepr
 import akka.persistence.query.scaladsl._
 import akka.persistence.query.{EventEnvelope, NoOffset, Offset}
 import akka.persistence.spanner.internal.SpannerJournalInteractions.Schema
@@ -60,8 +61,10 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   private val PersistenceIdsQuery =
     s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
 
-  private val EventsForPersistenceIdSql =
-    s"SELECT ${Schema.Journal.Columns.mkString(",")} FROM ${settings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
+  private val EventsForPersistenceIdSql = {
+    val columns = if (!settings.useReplicationMeta) Schema.Journal.Columns else Schema.Journal.ColumnsWithMeta
+    s"SELECT ${columns.mkString(",")} FROM ${settings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
+  }
 
   override def currentEventsByTag(tag: String, offset: Offset): scaladsl.Source[EventEnvelope, NotUsed] = {
     val spannerOffset = toSpannerOffset(offset)
@@ -182,7 +185,27 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
     var currentTimestamp: String = spannerOffset.commitTimestamp
     var currentSequenceNrs: Map[String, Long] = spannerOffset.seen
     row => {
-      val (pr, commitTimestamp) = Schema.Journal.deserializeRow(serialization, row)
+      def prToEnvelope(offset: SpannerOffset, pr: PersistentRepr): EventEnvelope = {
+        val envelope = EventEnvelope(
+          offset,
+          pr.persistenceId,
+          pr.sequenceNr,
+          pr.payload,
+          pr.timestamp
+        )
+        if (!settings.useReplicationMeta) envelope
+        else
+          pr.metadata match {
+            case Some(meta) => envelope.withMetadata(meta)
+            case _ =>
+              throw new IllegalArgumentException(
+                s"with-replication-meta enabled but read event (persistence id ${pr.persistenceId}, sequence nr ${pr.sequenceNr}) without metadata, " +
+                "Mixing active active and event sourced acotors is not allowed."
+              )
+          }
+      }
+
+      val (pr, commitTimestamp) = Schema.Journal.deserializeRow(settings, serialization, row)
       if (commitTimestamp == currentTimestamp) {
         // has this already been seen?
         if (currentSequenceNrs.get(pr.persistenceId).exists(_ >= pr.sequenceNr)) {
@@ -195,29 +218,15 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
           Nil
         } else {
           currentSequenceNrs = currentSequenceNrs.updated(pr.persistenceId, pr.sequenceNr)
-          List(
-            EventEnvelope(
-              SpannerOffset(commitTimestamp, currentSequenceNrs),
-              pr.persistenceId,
-              pr.sequenceNr,
-              pr.payload,
-              pr.timestamp
-            )
-          )
+          val offset = SpannerOffset(commitTimestamp, currentSequenceNrs)
+          prToEnvelope(offset, pr) :: Nil
         }
       } else {
         // ne timestamp, reset currentSequenceNrs
         currentTimestamp = commitTimestamp
         currentSequenceNrs = Map(pr.persistenceId -> pr.sequenceNr)
-        List(
-          EventEnvelope(
-            SpannerOffset(commitTimestamp, currentSequenceNrs),
-            pr.persistenceId,
-            pr.sequenceNr,
-            pr.payload,
-            pr.timestamp
-          )
-        )
+        val offset = SpannerOffset(commitTimestamp, currentSequenceNrs)
+        prToEnvelope(offset, pr) :: Nil
       }
     }
   }

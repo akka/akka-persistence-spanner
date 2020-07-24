@@ -8,7 +8,8 @@ object Dependencies {
   val Scala212 = "2.12.11"
   val Scala213 = "2.13.1"
 
-  val AkkaVersion = System.getProperty("override.akka.version", "2.6.6")
+  // FIXME actual patch release with active active metadata
+  val AkkaVersion = System.getProperty("override.akka.version", "2.6.8+31-a9efe189+20200723-1641")
   val AkkaVersionInDocs = AkkaVersion.take(3)
   // for example
   val AkkaHttpVersion = "10.1.11"
@@ -101,6 +102,7 @@ object Dependencies {
   val testkit = Seq(
     scalaTest,
     akkaTestkit,
+    akkaPersistenceTyped % Test,
     TestDeps.logback,
     TestDeps.junit,
     TestDeps.junitInterface

@@ -15,6 +15,7 @@ import akka.event.Logging
 import akka.persistence.journal.{AsyncWriteJournal, Tagged}
 import akka.persistence.spanner.internal.SpannerJournalInteractions.SerializedWrite
 import akka.persistence.spanner.SpannerJournal.WriteFinished
+import akka.persistence.spanner.internal.SpannerJournalInteractions.SerializedEventMetadata
 import akka.persistence.spanner.internal.{SpannerGrpcClientExtension, SpannerJournalInteractions}
 import akka.persistence.{AtomicWrite, PersistentRepr}
 import akka.serialization.{Serialization, SerializationExtension, Serializers}
@@ -73,15 +74,34 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
 
           val serializedAsString = Base64.getEncoder.encodeToString(serialized)
 
-          SerializedWrite(
+          val write = SerializedWrite(
             pr.persistenceId,
             pr.sequenceNr,
             serializedAsString,
             id,
             manifest,
             pr.writerUuid,
-            tags
+            tags,
+            None
           )
+
+          if (!journalSettings.useReplicationMeta) write
+          else {
+            pr.metadata match {
+              case Some(replicatedMeta) =>
+                val m = replicatedMeta.asInstanceOf[AnyRef]
+                val serializedMeta = serialization.serialize(m).get
+                val serializedMetaAsString = Base64.getEncoder.encodeToString(serializedMeta)
+                val metaSerializer = serialization.findSerializerFor(m)
+                val metaManifest = Serializers.manifestFor(metaSerializer, m)
+                val id: Int = metaSerializer.identifier
+                write.copy(metadata = Some(SerializedEventMetadata(id, metaManifest, serializedMetaAsString)))
+              case None =>
+                // FIXME perhaps we should fail fast here because replicated meta enabled but missing in db?
+                // Using the journal with replication enabled but for regular event sourced actors
+                write
+            }
+          }
         }
       }
 
