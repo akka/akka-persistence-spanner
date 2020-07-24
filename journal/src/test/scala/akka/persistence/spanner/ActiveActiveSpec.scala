@@ -1,12 +1,22 @@
 package akka.persistence.spanner
 
 import akka.Done
+import akka.actor.testkit.typed.FishingOutcome
 import akka.actor.typed.ActorRef
 import akka.actor.typed.Behavior
+import akka.persistence.JournalProtocol.WriteMessages
+import akka.persistence.Persistence
+import akka.persistence.SaveSnapshotSuccess
+import akka.persistence.SelectedSnapshot
+import akka.persistence.SnapshotMetadata
+import akka.persistence.SnapshotProtocol.LoadSnapshot
+import akka.persistence.SnapshotProtocol.LoadSnapshotResult
+import akka.persistence.SnapshotProtocol.SaveSnapshot
+import akka.persistence.SnapshotSelectionCriteria
 import akka.persistence.spanner.ActiveActiveSpec.MyActiveActiveStringSet
-import akka.persistence.spanner.ActiveActiveSpec.MyActiveActiveStringSet.Texts
 import akka.persistence.spanner.javadsl.SpannerReadJournal
 import akka.persistence.typed.ReplicaId
+import akka.persistence.typed.internal.ReplicatedSnapshotMetadata
 import akka.persistence.typed.scaladsl.ActiveActiveEventSourcing
 import akka.persistence.typed.scaladsl.Effect
 import akka.persistence.typed.scaladsl.EventSourcedBehavior
@@ -42,7 +52,8 @@ object ActiveActiveSpec {
 }
 
 class ActiveActiveSpec extends SpannerSpec {
-  override def replicatedMetaEnabled: Boolean = true
+  override def replicatedMetaEnabled = true
+  override def withSnapshotStore = true
 
   "Active active" must {
     "work with Spanner as journal" in {
@@ -62,10 +73,40 @@ class ActiveActiveSpec extends SpannerSpec {
 
       val restartedReplicaA = testKit.spawn(aBehavior)
       eventually {
+        // FIXME this fails never seeing the replicated event, have not been able to figure out why
         val probe = testKit.createTestProbe[MyActiveActiveStringSet.Texts]()
         restartedReplicaA ! MyActiveActiveStringSet.GetTexts(probe.ref)
         probe.receiveMessage().texts should ===(Set("added to a", "added to b"))
       }
+    }
+
+    "store and retrieve snapshot with metadata" in {
+      val snapshotStore = Persistence(testKit.system).snapshotStoreFor("akka.persistence.spanner.snapshot")
+
+      import akka.actor.typed.scaladsl.adapter._
+      val probe = testKit.createTestProbe[Any]()
+
+      // Somewhat confusing that three things are called meta data, SnapshotMetadata, SnapshotMetadata.metadata and SnapshotWithMetaData.
+      // However, at least this is just between the journal impl and Akka persistence, not really user api
+      val replicatedMeta = ReplicatedSnapshotMetadata.instanceForSnapshotStoreTest
+      val state = "snapshot"
+
+      snapshotStore.tell(
+        SaveSnapshot(SnapshotMetadata("meta-1", 100, System.currentTimeMillis(), Some(replicatedMeta)), state),
+        probe.ref.toClassic
+      )
+      probe.expectMessageType[SaveSnapshotSuccess]
+
+      // load most recent snapshot
+      snapshotStore.tell(LoadSnapshot("meta-1", SnapshotSelectionCriteria.Latest, Long.MaxValue), probe.ref.toClassic)
+      // get most recent snapshot
+      val loaded = probe.expectMessageType[LoadSnapshotResult]
+      val selected = loaded match {
+        case LoadSnapshotResult(Some(snapshot: SelectedSnapshot), _) => snapshot
+        case unexpected => fail(s"Unexpected: $unexpected")
+      }
+      selected.snapshot should equal(state)
+      selected.metadata.metadata should ===(Some(replicatedMeta))
     }
   }
 }

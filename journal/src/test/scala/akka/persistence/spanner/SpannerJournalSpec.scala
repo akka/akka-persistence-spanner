@@ -18,4 +18,7 @@ object SpannerJournalSpec {
 class SpannerJournalSpec extends JournalSpec(SpannerJournalSpec.config) with SpannerLifecycle {
   override def databaseName: String = SpannerJournalSpec.dbName
   override protected def supportsRejectingNonSerializableObjects: CapabilityFlag = CapabilityFlag.on()
+  // can't use because it requires support for both esb and aa at the same time, but we need to list columns up front
+  // for queries so we can't do that
+  // protected override def supportsMetadata: CapabilityFlag = CapabilityFlag.on()
 }

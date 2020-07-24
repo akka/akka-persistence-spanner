@@ -28,6 +28,13 @@ import scala.concurrent.{ExecutionContext, Future}
 private[spanner] object SpannerSnapshotInteractions {
   object Schema {
     object Snapshots {
+      private def metaColumns =
+        """
+          |   meta BYTES(MAX) NOT NULL,
+          |   meta_ser_id INT64 NOT NULL,
+          |   meta_ser_manifest STRING(MAX) NOT NULL,
+          |""".stripMargin
+
       def snapshotTable(settings: SpannerSettings): String =
         s"""CREATE TABLE ${settings.snapshotsTable} (
            |  persistence_id STRING(MAX) NOT NULL,
@@ -35,7 +42,8 @@ private[spanner] object SpannerSnapshotInteractions {
            |  timestamp TIMESTAMP NOT NULL,
            |  ser_id INT64 NOT NULL,
            |  ser_manifest STRING(MAX) NOT NULL,
-           |  snapshot BYTES(MAX)
+           |  snapshot BYTES(MAX),
+           |  ${if (settings.useReplicationMeta) metaColumns else ""}
            |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
@@ -46,10 +54,17 @@ private[spanner] object SpannerSnapshotInteractions {
       val SerManifest = "ser_manifest" -> Type(TypeCode.STRING)
       val Snapshot = "snapshot" -> Type(TypeCode.BYTES)
 
+      val Meta = "meta" -> Type(TypeCode.BYTES)
+      val MetaSerId = "meta_ser_id" -> Type(TypeCode.INT64)
+      val MetaSerManifest = "meta_ser_manifest" -> Type(TypeCode.STRING)
+
       val Columns =
         Seq(PersistenceId, SeqNr, WriteTime, SerId, SerManifest, Snapshot)
           .map(_._1)
           .toList
+
+      val ColumnsWithMeta =
+        Columns ++ Seq(Meta, MetaSerId, MetaSerManifest).map(_._1)
     }
   }
 }
@@ -73,11 +88,11 @@ private[spanner] final class SpannerSnapshotInteractions(
   private val log = LoggerFactory.getLogger(getClass)
 
   private val serialization: Serialization = SerializationExtension(system)
-  private val metaSerializer = serialization.serializerFor(classOf[SnapshotMetadata])
 
   def findSnapshot(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
     val query =
       "SELECT persistence_id, sequence_nr, timestamp, ser_id, ser_manifest, snapshot " +
+      (if (settings.useReplicationMeta) ", meta, meta_ser_id, meta_ser_manifest " else "") +
       s"FROM ${settings.snapshotsTable} " +
       wherePartFor(criteria) +
       "ORDER BY sequence_nr DESC LIMIT 1"
@@ -120,8 +135,26 @@ private[spanner] final class SpannerSnapshotInteractions(
             val snapshotBytes = Base64.getDecoder.decode(fieldIterator.next().kind.stringValue.get)
 
             val snapshot = serialization.deserialize(snapshotBytes, serId.toInt, serManifest).get
-            val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp)
-            Some(SelectedSnapshot(metadata, snapshot))
+
+            if (!settings.useReplicationMeta) {
+              val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp)
+              Some(SelectedSnapshot(metadata, snapshot))
+            } else {
+              if (!fieldIterator.hasNext)
+                throw new IllegalArgumentException(
+                  s"with-replication-meta enabled but trying to read snapshot (persistence id ${persistenceId}, sequence nr ${sequenceNr}) without metadata, " +
+                  "Mixing active active and event sourced actors is not allowed."
+                )
+
+              val snapshotByteString = fieldIterator.next().getStringValue
+              val metaSerId = fieldIterator.next().kind.stringValue.get.toInt // ints and longs are StringValues :|
+              val metaSerManifest = fieldIterator.next().kind.stringValue.get
+              val snapshotBytes = Base64.getDecoder.decode(snapshotByteString)
+              val replicationMeta = serialization.deserialize(snapshotBytes, metaSerId, metaSerManifest).get
+
+              val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp, Some(replicationMeta))
+              Some(SelectedSnapshot(metadata, snapshot))
+            }
           }
         }
     }
@@ -129,9 +162,45 @@ private[spanner] final class SpannerSnapshotInteractions(
 
   def saveSnapshot(metadata: SnapshotMetadata, snapshot: Any): Future[Unit] =
     Serialization.withTransportInformation(system.asInstanceOf[ExtendedActorSystem]) { () =>
-      val serializer = serialization.serializerFor(snapshot.getClass)
-      val manifest = Serializers.manifestFor(serializer, snapshot.asInstanceOf[AnyRef])
-      val snapshotBytes = Base64.getEncoder.encodeToString(serializer.toBinary(snapshot.asInstanceOf[AnyRef]))
+      val s2 = snapshot.asInstanceOf[AnyRef]
+      val serializer = serialization.findSerializerFor(s2)
+      val manifest = Serializers.manifestFor(serializer, s2)
+      val snapshotBytes = Base64.getEncoder.encodeToString(serializer.toBinary(s2))
+
+      val noMetaColumnList = List(
+        Value(StringValue(metadata.persistenceId)),
+        Value(StringValue(metadata.sequenceNr.toString)), // ints and longs are StringValues :|
+        Value(StringValue(unixTimestampMillisToSpanner(metadata.timestamp))),
+        Value(StringValue(serializer.identifier.toString)),
+        Value(StringValue(manifest)),
+        Value(StringValue(snapshotBytes))
+      )
+
+      val columnList =
+        if (!settings.useReplicationMeta) noMetaColumnList
+        else {
+          metadata.metadata match {
+            case Some(replicationMeta) =>
+              val rm2 = replicationMeta.asInstanceOf[AnyRef]
+              val metaSerializer = serialization.findSerializerFor(rm2)
+              val metaManifest = Serializers.manifestFor(metaSerializer, rm2)
+              val serializedMetaString =
+                Base64.getEncoder.encodeToString(metaSerializer.toBinary(rm2))
+
+              noMetaColumnList ++ List(
+                Value(StringValue(serializedMetaString)),
+                Value(StringValue(metaSerializer.identifier.toString)),
+                Value(StringValue(metaManifest))
+              )
+            case None =>
+              throw new IllegalArgumentException(
+                s"with-replication-meta enabled but trying to write snapshot (persistence id ${metadata.persistenceId}, sequence nr ${metadata.sequenceNr}) without metadata, " +
+                "Mixing active active and event sourced actors is not allowed."
+              )
+          }
+        }
+
+      val affectedColumns = if (!settings.useReplicationMeta) Snapshots.Columns else Snapshots.ColumnsWithMeta
 
       spannerGrpcClient.withSession { implicit session =>
         if (log.isTraceEnabled()) {
@@ -150,17 +219,10 @@ private[spanner] final class SpannerSnapshotInteractions(
                 Mutation.Operation.Insert(
                   Mutation.Write(
                     settings.snapshotsTable,
-                    Snapshots.Columns,
+                    affectedColumns,
                     List(
                       ListValue(
-                        List(
-                          Value(StringValue(metadata.persistenceId)),
-                          Value(StringValue(metadata.sequenceNr.toString)), // ints and longs are StringValues :|
-                          Value(StringValue(unixTimestampMillisToSpanner(metadata.timestamp))),
-                          Value(StringValue(serializer.identifier.toString)),
-                          Value(StringValue(manifest)),
-                          Value(StringValue(snapshotBytes))
-                        )
+                        columnList
                       )
                     )
                   )
@@ -186,17 +248,10 @@ private[spanner] final class SpannerSnapshotInteractions(
                       Mutation.Operation.Update(
                         Mutation.Write(
                           settings.snapshotsTable,
-                          Snapshots.Columns,
+                          affectedColumns,
                           List(
                             ListValue(
-                              List(
-                                Value(StringValue(metadata.persistenceId)),
-                                Value(StringValue(metadata.sequenceNr.toString)), // ints and longs are StringValues :|
-                                Value(StringValue(unixTimestampMillisToSpanner(metadata.timestamp))),
-                                Value(StringValue(serializer.identifier.toString)),
-                                Value(StringValue(manifest)),
-                                Value(StringValue(snapshotBytes))
-                              )
+                              columnList
                             )
                           )
                         )

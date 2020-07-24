@@ -200,7 +200,7 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
             case _ =>
               throw new IllegalArgumentException(
                 s"with-replication-meta enabled but read event (persistence id ${pr.persistenceId}, sequence nr ${pr.sequenceNr}) without metadata, " +
-                "Mixing active active and event sourced acotors is not allowed."
+                "Mixing active active and event sourced actors is not allowed."
               )
           }
       }

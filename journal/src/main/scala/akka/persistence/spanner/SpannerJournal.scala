@@ -97,9 +97,10 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
                 val id: Int = metaSerializer.identifier
                 write.copy(metadata = Some(SerializedEventMetadata(id, metaManifest, serializedMetaAsString)))
               case None =>
-                // FIXME perhaps we should fail fast here because replicated meta enabled but missing in db?
-                // Using the journal with replication enabled but for regular event sourced actors
-                write
+                throw new IllegalArgumentException(
+                  s"with-replication-meta enabled but trying to write event (persistence id ${pr.persistenceId}, sequence nr ${pr.sequenceNr}) without metadata, " +
+                  "Mixing active active and event sourced actors is not allowed."
+                )
             }
           }
         }

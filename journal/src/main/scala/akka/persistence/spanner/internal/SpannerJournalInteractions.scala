@@ -64,7 +64,7 @@ private[spanner] object SpannerJournalInteractions {
            |  ser_manifest STRING(MAX) NOT NULL,
            |  write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
            |  writer_uuid STRING(MAX) NOT NULL,
-           |  ${if (settings.useReplicationMeta) metaColumns}
+           |  ${if (settings.useReplicationMeta) metaColumns else ""}
            |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
@@ -124,7 +124,7 @@ private[spanner] object SpannerJournalInteractions {
             if (!iterator.hasNext)
               throw new IllegalArgumentException(
                 s"with-replication-meta enabled but read event (persistence id ${persistenceId}, sequence nr ${sequenceNr}) without metadata, " +
-                "Mixing active active and event sourced acotors is not allowed."
+                "Mixing active active and event sourced actors is not allowed."
               )
             val metaAsString = iterator.next.getStringValue
             val metaSerId = iterator.next.getStringValue.toInt
