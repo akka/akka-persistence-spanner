@@ -62,7 +62,7 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
     s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
 
   private val EventsForPersistenceIdSql = {
-    val columns = if (!settings.useReplicationMeta) Schema.Journal.Columns else Schema.Journal.ColumnsWithMeta
+    val columns = if (!settings.metaEnabled) Schema.Journal.Columns else Schema.Journal.ColumnsWithMeta
     s"SELECT ${columns.mkString(",")} FROM ${settings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
   }
 
@@ -193,15 +193,11 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
           pr.payload,
           pr.timestamp
         )
-        if (!settings.useReplicationMeta) envelope
+        if (!settings.metaEnabled) envelope
         else
           pr.metadata match {
             case Some(meta) => envelope.withMetadata(meta)
-            case _ =>
-              throw new IllegalArgumentException(
-                s"with-replication-meta enabled but read event (persistence id ${pr.persistenceId}, sequence nr ${pr.sequenceNr}) without metadata, " +
-                "Mixing active active and event sourced actors is not allowed."
-              )
+            case None => envelope
           }
       }
 

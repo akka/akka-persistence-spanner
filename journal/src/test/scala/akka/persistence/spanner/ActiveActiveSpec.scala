@@ -52,7 +52,7 @@ object ActiveActiveSpec {
 }
 
 class ActiveActiveSpec extends SpannerSpec {
-  override def replicatedMetaEnabled = true
+  override def withMetadata = true
   override def withSnapshotStore = true
 
   "Active active" must {
@@ -86,8 +86,6 @@ class ActiveActiveSpec extends SpannerSpec {
       import akka.actor.typed.scaladsl.adapter._
       val probe = testKit.createTestProbe[Any]()
 
-      // Somewhat confusing that three things are called meta data, SnapshotMetadata, SnapshotMetadata.metadata and SnapshotWithMetaData.
-      // However, at least this is just between the journal impl and Akka persistence, not really user api
       val replicatedMeta = ReplicatedSnapshotMetadata.instanceForSnapshotStoreTest
       val state = "snapshot"
 

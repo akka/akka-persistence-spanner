@@ -7,6 +7,7 @@ package akka.persistence.spanner.internal
 import java.time.Instant
 
 import akka.annotation.InternalApi
+import com.google.protobuf.struct.Value.Kind.NullValue
 
 /**
  * INTERNAL API
@@ -18,4 +19,7 @@ private[spanner] object SpannerUtils {
 
   def spannerTimestampToUnixMillis(spannerTimestamp: String): Long =
     Instant.parse(spannerTimestamp).toEpochMilli
+
+  val nullValue: NullValue =
+    com.google.protobuf.struct.Value.Kind.NullValue(com.google.protobuf.struct.NullValue.NULL_VALUE)
 }

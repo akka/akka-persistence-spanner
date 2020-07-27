@@ -88,7 +88,7 @@ object SpannerSpec {
         database = ${databaseName.toLowerCase}
         instance = akka
         project = akka-team
-        with-replication-meta = $replicatedMetaEnabled
+        with-meta = $replicatedMetaEnabled
       }
       #instance-config
 
@@ -125,11 +125,13 @@ trait SpannerLifecycle
     with ScalaFutures
     with Matchers
     with Eventually { self =>
-  def replicatedMetaEnabled: Boolean = false
+  def withMetadata: Boolean = false
   def databaseName: String
   def shouldDumpRows: Boolean = true
 
-  lazy val testKit = ActorTestKit(SpannerSpec.config(databaseName, replicatedMetaEnabled))
+  def customConfig: Config = ConfigFactory.empty()
+
+  lazy val testKit = ActorTestKit(customConfig.withFallback(SpannerSpec.config(databaseName, withMetadata)))
 
   implicit val ec = testKit.system.executionContext
   implicit val defaultPatience = PatienceConfig(timeout = Span(5, Seconds), interval = Span(5, Millis))
@@ -197,19 +199,23 @@ trait SpannerLifecycle
       // ok, no pre-existing database
     }
 
+    log.debug("Used settings: {}", spannerSettings)
     log.info("Creating database {}", spannerSettings.database)
+    val dbSchemas = SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
+      SpannerJournalInteractions.Schema.Tags.tagTable(spannerSettings) ::
+      SpannerJournalInteractions.Schema.Tags.eventsByTagIndex(spannerSettings) ::
+      SpannerJournalInteractions.Schema.Deleted.deleteMetadataTable(spannerSettings) ::
+      (if (withSnapshotStore)
+         SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
+       else Nil)
+    dbSchemas.foreach(log.debug(_))
+
     adminClient
       .createDatabase(
         CreateDatabaseRequest(
           parent = spannerSettings.parent,
           s"CREATE DATABASE ${spannerSettings.database}",
-          SpannerJournalInteractions.Schema.Journal.journalTable(spannerSettings) ::
-          SpannerJournalInteractions.Schema.Tags.tagTable(spannerSettings) ::
-          SpannerJournalInteractions.Schema.Tags.eventsByTagIndex(spannerSettings) ::
-          SpannerJournalInteractions.Schema.Deleted.deleteMetadataTable(spannerSettings) ::
-          (if (withSnapshotStore)
-             SpannerSnapshotInteractions.Schema.Snapshots.snapshotTable(spannerSettings) :: Nil
-           else Nil)
+          dbSchemas
         )
       )
       .failed

@@ -85,7 +85,7 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
             None
           )
 
-          if (!journalSettings.useReplicationMeta) write
+          if (!journalSettings.metaEnabled) write
           else {
             pr.metadata match {
               case Some(replicatedMeta) =>
@@ -97,10 +97,8 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
                 val id: Int = metaSerializer.identifier
                 write.copy(metadata = Some(SerializedEventMetadata(id, metaManifest, serializedMetaAsString)))
               case None =>
-                throw new IllegalArgumentException(
-                  s"with-replication-meta enabled but trying to write event (persistence id ${pr.persistenceId}, sequence nr ${pr.sequenceNr}) without metadata, " +
-                  "Mixing active active and event sourced actors is not allowed."
-                )
+                // meta enabled but regular entity
+                write
             }
           }
         }

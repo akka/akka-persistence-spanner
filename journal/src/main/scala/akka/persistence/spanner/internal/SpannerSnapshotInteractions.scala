@@ -13,6 +13,7 @@ import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SpannerUtils.{spannerTimestampToUnixMillis, unixTimestampMillisToSpanner}
 import akka.persistence.{SelectedSnapshot, SnapshotMetadata, SnapshotSelectionCriteria}
 import akka.serialization.{Serialization, SerializationExtension, Serializers}
+import com.google.protobuf.struct.Value.Kind
 import com.google.protobuf.struct.Value.Kind.StringValue
 import com.google.protobuf.struct.{ListValue, Struct, Value}
 import com.google.spanner.v1.{Mutation, Type, TypeCode}
@@ -30,9 +31,9 @@ private[spanner] object SpannerSnapshotInteractions {
     object Snapshots {
       private def metaColumns =
         """
-          |   meta BYTES(MAX) NOT NULL,
-          |   meta_ser_id INT64 NOT NULL,
-          |   meta_ser_manifest STRING(MAX) NOT NULL,
+          |   meta BYTES(MAX),
+          |   meta_ser_id INT64,
+          |   meta_ser_manifest STRING(MAX),
           |""".stripMargin
 
       def snapshotTable(settings: SpannerSettings): String =
@@ -43,7 +44,7 @@ private[spanner] object SpannerSnapshotInteractions {
            |  ser_id INT64 NOT NULL,
            |  ser_manifest STRING(MAX) NOT NULL,
            |  snapshot BYTES(MAX),
-           |  ${if (settings.useReplicationMeta) metaColumns else ""}
+           |  ${if (settings.metaEnabled) metaColumns else ""}
            |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
@@ -84,6 +85,7 @@ private[spanner] final class SpannerSnapshotInteractions(
     system: ActorSystem
 ) {
   import SpannerSnapshotInteractions.Schema.Snapshots
+  import SpannerUtils.nullValue
 
   private val log = LoggerFactory.getLogger(getClass)
 
@@ -92,7 +94,7 @@ private[spanner] final class SpannerSnapshotInteractions(
   def findSnapshot(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
     val query =
       "SELECT persistence_id, sequence_nr, timestamp, ser_id, ser_manifest, snapshot " +
-      (if (settings.useReplicationMeta) ", meta, meta_ser_id, meta_ser_manifest " else "") +
+      (if (settings.metaEnabled) ", meta, meta_ser_id, meta_ser_manifest " else "") +
       s"FROM ${settings.snapshotsTable} " +
       wherePartFor(criteria) +
       "ORDER BY sequence_nr DESC LIMIT 1"
@@ -136,24 +138,20 @@ private[spanner] final class SpannerSnapshotInteractions(
 
             val snapshot = serialization.deserialize(snapshotBytes, serId.toInt, serManifest).get
 
-            if (!settings.useReplicationMeta) {
-              val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp)
+            val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp)
+            if (!settings.metaEnabled) {
               Some(SelectedSnapshot(metadata, snapshot))
             } else {
-              if (!fieldIterator.hasNext)
-                throw new IllegalArgumentException(
-                  s"with-replication-meta enabled but trying to read snapshot (persistence id ${persistenceId}, sequence nr ${sequenceNr}) without metadata, " +
-                  "Mixing active active and event sourced actors is not allowed."
-                )
-
-              val snapshotByteString = fieldIterator.next().getStringValue
-              val metaSerId = fieldIterator.next().kind.stringValue.get.toInt // ints and longs are StringValues :|
-              val metaSerManifest = fieldIterator.next().kind.stringValue.get
-              val snapshotBytes = Base64.getDecoder.decode(snapshotByteString)
-              val replicationMeta = serialization.deserialize(snapshotBytes, metaSerId, metaSerManifest).get
-
-              val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp, Some(replicationMeta))
-              Some(SelectedSnapshot(metadata, snapshot))
+              val firstMetaField = fieldIterator.next()
+              if (firstMetaField.kind.isNullValue) Some(SelectedSnapshot(metadata, snapshot))
+              else {
+                val snapshotByteString = firstMetaField.getStringValue
+                val metaSerId = fieldIterator.next().kind.stringValue.get.toInt // ints and longs are StringValues :|
+                val metaSerManifest = fieldIterator.next().kind.stringValue.get
+                val snapshotBytes = Base64.getDecoder.decode(snapshotByteString)
+                val replicationMeta = serialization.deserialize(snapshotBytes, metaSerId, metaSerManifest).get
+                Some(SelectedSnapshot(metadata.withMetadata(replicationMeta), snapshot))
+              }
             }
           }
         }
@@ -177,7 +175,7 @@ private[spanner] final class SpannerSnapshotInteractions(
       )
 
       val columnList =
-        if (!settings.useReplicationMeta) noMetaColumnList
+        if (!settings.metaEnabled) noMetaColumnList
         else {
           metadata.metadata match {
             case Some(replicationMeta) =>
@@ -193,14 +191,15 @@ private[spanner] final class SpannerSnapshotInteractions(
                 Value(StringValue(metaManifest))
               )
             case None =>
-              throw new IllegalArgumentException(
-                s"with-replication-meta enabled but trying to write snapshot (persistence id ${metadata.persistenceId}, sequence nr ${metadata.sequenceNr}) without metadata, " +
-                "Mixing active active and event sourced actors is not allowed."
+              noMetaColumnList ++ List(
+                Value(nullValue),
+                Value(nullValue),
+                Value(nullValue)
               )
           }
         }
 
-      val affectedColumns = if (!settings.useReplicationMeta) Snapshots.Columns else Snapshots.ColumnsWithMeta
+      val affectedColumns = if (!settings.metaEnabled) Snapshots.Columns else Snapshots.ColumnsWithMeta
 
       spannerGrpcClient.withSession { implicit session =>
         if (log.isTraceEnabled()) {
