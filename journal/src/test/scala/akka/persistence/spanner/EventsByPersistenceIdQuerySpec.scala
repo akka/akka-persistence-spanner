@@ -12,6 +12,9 @@ import akka.stream.scaladsl.Source
 import akka.stream.testkit.TestSubscriber
 import akka.stream.testkit.scaladsl.TestSink
 import akka.{Done, NotUsed}
+import org.scalatest
+import org.scalatest
+import org.scalatest.events
 
 object EventsByPersistenceIdQuerySpec {
   sealed trait QueryType
@@ -100,6 +103,30 @@ class EventsByPersistenceIdQuerySpec extends SpannerSpec {
         sub
           .request(events.size + 1)
           .expectNextN(events.take(5))
+
+        assertFinished(sub, liveShouldFinish = true)
+      }
+
+      "allow querying for a single event" in {
+        val pid = nextPid
+        val persister = testKit.spawn(TestActors.Persister(pid))
+        val probe = testKit.createTestProbe[Done]()
+
+        val events = (1 to 3) map { i =>
+          val payload = s"e-$i"
+          persister ! PersistMe(payload, probe.ref)
+          probe.expectMessage(Done)
+          payload
+        }
+
+        val sub = doQuery(pid, 2, 2)
+          .map(_.event)
+          .runWith(TestSink.probe)
+
+        val event = sub
+          .request(2)
+          .expectNext()
+        event should ===("e-2")
 
         assertFinished(sub, liveShouldFinish = true)
       }
