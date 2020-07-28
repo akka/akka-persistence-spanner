@@ -76,7 +76,9 @@ private[spanner] object SpannerGrpcClient {
   ): Source[Seq[Value], Future[Done]] = {
     val sessionId = nextSessionId()
     val result: Future[Source[Seq[Value], NotUsed]] = getSession(sessionId).map { session =>
-      log.debug("streamingQuery, session id [{}]", session.id)
+      if (log.isTraceEnabled()) {
+        log.traceN("streamingQuery, session id [{}], query: [{}], params: [{}]", session.id, sql, params)
+      }
       client
         .executeStreamingSql(
           ExecuteSqlRequest(session.session.name, sql = sql, params = params, paramTypes = paramTypes)

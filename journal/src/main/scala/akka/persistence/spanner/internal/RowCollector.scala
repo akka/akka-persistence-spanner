@@ -5,13 +5,14 @@
 package akka.persistence.spanner.internal
 
 import akka.annotation.InternalApi
-import akka.event.Logging
 import akka.stream.stage._
 import akka.stream.{Attributes, FlowShape, Inlet, Outlet}
 import akka.util.OptionVal
+import akka.actor.typed.scaladsl.LoggerOps
 import com.google.protobuf.struct.Value.Kind
 import com.google.protobuf.struct.{ListValue, Value}
 import com.google.spanner.v1.PartialResultSet
+import org.slf4j.LoggerFactory
 
 /**
  * INTERNAL API
@@ -20,16 +21,17 @@ import com.google.spanner.v1.PartialResultSet
  * (represented by a `Seq` each) passed downstream
  */
 @InternalApi private[akka] object RowCollector extends GraphStage[FlowShape[PartialResultSet, Seq[Value]]] {
+  private val log = LoggerFactory.getLogger(getClass)
   // Custom graphstage avoids alloc per element in the happy case required by using statefulMapConcat
-  val in = Inlet[PartialResultSet](Logging.simpleName(this) + ".in")
-  val out = Outlet[Seq[Value]](Logging.simpleName(this) + ".out")
+  val in = Inlet[PartialResultSet]("RowCollector.in")
+  val out = Outlet[Seq[Value]]("RowCollector.out")
 
   private val MetadataNotSeenYet = -1
 
   override val shape = FlowShape(in, out)
 
   override def createLogic(inheritedAttributes: Attributes): GraphStageLogic =
-    new GraphStageLogic(shape) with InHandler with OutHandler with StageLogging {
+    new GraphStageLogic(shape) with InHandler with OutHandler {
       /* Rows can be split across several result sets but there can also be multiple
        * rows in one result set, and a combination of the two. Furthermore the split
        * of a row can happen mid field, indicated by the "chunked" flag.
@@ -41,13 +43,17 @@ import com.google.spanner.v1.PartialResultSet
 
       override def onPush(): Unit = {
         val currentSet = grab(in)
-        log.debug(
-          "result set [{}], incompleteRows: [{}], incompleteChunked: [{}], columnsPerRow: [{}]",
-          currentSet,
-          incompleteRow,
-          incompleteChunked,
-          columnsPerRow
-        )
+        if (log.isTraceEnabled)
+          log.traceN(
+            "Chunk push, metadata seen: [{}], incompleteRows: [{}], incompleteChunked: [{}], columnsPerRow: [{}], " +
+            "result set metadata: [{}], result set values [{}]",
+            columnsPerRow != MetadataNotSeenYet,
+            incompleteRow,
+            incompleteChunked,
+            columnsPerRow,
+            currentSet.metadata,
+            currentSet.values
+          )
         if (columnsPerRow == MetadataNotSeenYet) {
           // first result set contains metadata about how many columns to expect
           // if not we got invalid data
@@ -110,6 +116,7 @@ import com.google.spanner.v1.PartialResultSet
           }
         } else {
           // empty resultset
+          log.trace("Pulling and waiting for next result")
           pull(in)
         }
       }
@@ -119,7 +126,7 @@ import com.google.spanner.v1.PartialResultSet
 
       override def postStop(): Unit =
         if (incompleteRow.isDefined)
-          log.warning("Stream stopped with incomplete result in buffer {}", incompleteRow)
+          log.warn("Stream stopped with incomplete result in buffer {}", incompleteRow)
 
       setHandlers(in, out, this)
     }

@@ -15,6 +15,7 @@ import akka.persistence.spanner.internal.SpannerJournalInteractions.Schema
 import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension, SpannerJournalInteractions}
 import akka.persistence.spanner.{SpannerOffset, SpannerSettings}
 import akka.serialization.SerializationExtension
+import akka.stream.OverflowStrategy
 import akka.stream.scaladsl
 import akka.stream.scaladsl.Source
 import com.google.protobuf.struct.Value.Kind.StringValue
@@ -141,7 +142,7 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
       toSequenceNr: Long
   ): Source[EventEnvelope, NotUsed] =
     ContinuousQuery[Long, EventEnvelope](
-      fromSequenceNr,
+      fromSequenceNr - 1, // we always add 1 back below before querying
       (_, ee) => ee.sequenceNr,
       currentSequenceNr => {
         if (currentSequenceNr == toSequenceNr) {

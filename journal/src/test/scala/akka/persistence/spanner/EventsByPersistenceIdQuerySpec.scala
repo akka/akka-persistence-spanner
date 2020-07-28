@@ -60,7 +60,7 @@ class EventsByPersistenceIdQuerySpec extends SpannerSpec {
         assertFinished(sub)
       }
 
-      "return all events then compete" in {
+      "return all events then complete" in {
         val pid = nextPid
         val persister = testKit.spawn(TestActors.Persister(pid))
         val probe = testKit.createTestProbe[Done]()
@@ -77,7 +77,7 @@ class EventsByPersistenceIdQuerySpec extends SpannerSpec {
 
         sub
           .request(events.size + 1)
-          .expectNextN(events)
+          .expectNextN(events.size)
 
         assertFinished(sub)
       }
