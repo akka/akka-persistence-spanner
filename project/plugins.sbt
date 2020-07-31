@@ -14,6 +14,6 @@ addSbtPlugin("org.foundweekends" % "sbt-bintray" % "0.5.5")
 
 //// docs
 addSbtPlugin("com.lightbend.paradox" % "sbt-paradox-dependencies" % "0.2.1")
-addSbtPlugin("com.lightbend.akka" % "sbt-paradox-akka" % "0.32")
+addSbtPlugin("com.lightbend.akka" % "sbt-paradox-akka" % "0.35")
 addSbtPlugin("com.lightbend.sbt" % "sbt-publish-rsync" % "0.1")
 addSbtPlugin("com.typesafe.sbt" % "sbt-site" % "1.4.0")
