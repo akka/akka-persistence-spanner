@@ -8,8 +8,7 @@ object Dependencies {
   val Scala212 = "2.12.11"
   val Scala213 = "2.13.1"
 
-  // FIXME actual patch release with active active metadata
-  val AkkaVersion = System.getProperty("override.akka.version", "2.6.8+33-d14f6b58+20200727-1217")
+  val AkkaVersion = System.getProperty("override.akka.version", "2.6.9")
   val AkkaVersionInDocs = AkkaVersion.take(3)
   // for example
   val AkkaHttpVersion = "10.1.11"

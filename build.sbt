@@ -21,7 +21,11 @@ inThisBuild(
     licenses := Seq(("Apache-2.0", url("http://www.apache.org/licenses/LICENSE-2.0"))),
     description := "A replicated Akka Persistence journal backed by Spanner",
     // due to the emulator
-    parallelExecution := false
+    parallelExecution := false,
+    // add snapshot repo when Akka version overriden
+    resolvers ++=
+      (if (System.getProperty("override.akka.version") != null) Seq("Akka Snapshots".at("https://repo.akka.io/snapshots/"))
+      else Seq.empty)
   )
 )
 
