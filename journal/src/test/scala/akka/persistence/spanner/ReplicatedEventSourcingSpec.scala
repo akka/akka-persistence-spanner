@@ -71,7 +71,6 @@ class ReplicatedEventSourcingSpec extends SpannerSpec {
 
       val restartedReplicaA = testKit.spawn(aBehavior)
       eventually(interval(200.millis)) {
-        // FIXME this fails never seeing the replicated event, have not been able to figure out why
         val probe = testKit.createTestProbe[MyReplicatedStringSet.Texts]()
         restartedReplicaA ! MyReplicatedStringSet.GetTexts(probe.ref)
         probe.receiveMessage().texts should ===(Set("added to a", "added to b"))
