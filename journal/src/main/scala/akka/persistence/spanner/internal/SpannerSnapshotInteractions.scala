@@ -44,7 +44,9 @@ private[spanner] object SpannerSnapshotInteractions {
            |  ser_id INT64 NOT NULL,
            |  ser_manifest STRING(MAX) NOT NULL,
            |  snapshot BYTES(MAX),
-           |  ${if (settings.metaEnabled) metaColumns else ""}
+           |  meta BYTES(MAX),
+           |  meta_ser_id INT64,
+           |  meta_ser_manifest STRING(MAX),
            |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
@@ -60,12 +62,9 @@ private[spanner] object SpannerSnapshotInteractions {
       val MetaSerManifest = "meta_ser_manifest" -> Type(TypeCode.STRING)
 
       val Columns =
-        Seq(PersistenceId, SeqNr, WriteTime, SerId, SerManifest, Snapshot)
+        Seq(PersistenceId, SeqNr, WriteTime, SerId, SerManifest, Snapshot, Meta, MetaSerId, MetaSerManifest)
           .map(_._1)
           .toList
-
-      val ColumnsWithMeta =
-        Columns ++ Seq(Meta, MetaSerId, MetaSerManifest).map(_._1)
     }
   }
 }
@@ -93,8 +92,7 @@ private[spanner] final class SpannerSnapshotInteractions(
 
   def findSnapshot(persistenceId: String, criteria: SnapshotSelectionCriteria): Future[Option[SelectedSnapshot]] = {
     val query =
-      "SELECT persistence_id, sequence_nr, timestamp, ser_id, ser_manifest, snapshot " +
-      (if (settings.metaEnabled) ", meta, meta_ser_id, meta_ser_manifest " else "") +
+      "SELECT persistence_id, sequence_nr, timestamp, ser_id, ser_manifest, snapshot, meta, meta_ser_id, meta_ser_manifest " +
       s"FROM ${settings.snapshotsTable} " +
       wherePartFor(criteria) +
       "ORDER BY sequence_nr DESC LIMIT 1"
@@ -139,20 +137,18 @@ private[spanner] final class SpannerSnapshotInteractions(
             val snapshot = serialization.deserialize(snapshotBytes, serId.toInt, serManifest).get
 
             val metadata = SnapshotMetadata(persistenceId, sequenceNr, timestamp)
-            if (!settings.metaEnabled) {
-              Some(SelectedSnapshot(metadata, snapshot))
-            } else {
-              val firstMetaField = fieldIterator.next()
-              if (firstMetaField.kind.isNullValue) Some(SelectedSnapshot(metadata, snapshot))
+            val firstMetaField = fieldIterator.next()
+            Some(
+              if (firstMetaField.kind.isNullValue) SelectedSnapshot(metadata, snapshot)
               else {
                 val snapshotByteString = firstMetaField.getStringValue
                 val metaSerId = fieldIterator.next().kind.stringValue.get.toInt // ints and longs are StringValues :|
                 val metaSerManifest = fieldIterator.next().kind.stringValue.get
                 val snapshotBytes = Base64.getDecoder.decode(snapshotByteString)
                 val replicationMeta = serialization.deserialize(snapshotBytes, metaSerId, metaSerManifest).get
-                Some(SelectedSnapshot(metadata.withMetadata(replicationMeta), snapshot))
+                SelectedSnapshot(metadata.withMetadata(replicationMeta), snapshot)
               }
-            }
+            )
           }
         }
     }
@@ -175,31 +171,26 @@ private[spanner] final class SpannerSnapshotInteractions(
       )
 
       val columnList =
-        if (!settings.metaEnabled) noMetaColumnList
-        else {
-          metadata.metadata match {
-            case Some(replicationMeta) =>
-              val rm2 = replicationMeta.asInstanceOf[AnyRef]
-              val metaSerializer = serialization.findSerializerFor(rm2)
-              val metaManifest = Serializers.manifestFor(metaSerializer, rm2)
-              val serializedMetaString =
-                Base64.getEncoder.encodeToString(metaSerializer.toBinary(rm2))
+        metadata.metadata match {
+          case Some(replicationMeta) =>
+            val rm2 = replicationMeta.asInstanceOf[AnyRef]
+            val metaSerializer = serialization.findSerializerFor(rm2)
+            val metaManifest = Serializers.manifestFor(metaSerializer, rm2)
+            val serializedMetaString =
+              Base64.getEncoder.encodeToString(metaSerializer.toBinary(rm2))
 
-              noMetaColumnList ++ List(
-                Value(StringValue(serializedMetaString)),
-                Value(StringValue(metaSerializer.identifier.toString)),
-                Value(StringValue(metaManifest))
-              )
-            case None =>
-              noMetaColumnList ++ List(
-                Value(nullValue),
-                Value(nullValue),
-                Value(nullValue)
-              )
-          }
+            noMetaColumnList ++ List(
+              Value(StringValue(serializedMetaString)),
+              Value(StringValue(metaSerializer.identifier.toString)),
+              Value(StringValue(metaManifest))
+            )
+          case None =>
+            noMetaColumnList ++ List(
+              Value(nullValue),
+              Value(nullValue),
+              Value(nullValue)
+            )
         }
-
-      val affectedColumns = if (!settings.metaEnabled) Snapshots.Columns else Snapshots.ColumnsWithMeta
 
       spannerGrpcClient.withSession { implicit session =>
         if (log.isTraceEnabled()) {
@@ -218,7 +209,7 @@ private[spanner] final class SpannerSnapshotInteractions(
                 Mutation.Operation.Insert(
                   Mutation.Write(
                     settings.snapshotsTable,
-                    affectedColumns,
+                    Snapshots.Columns,
                     List(
                       ListValue(
                         columnList
@@ -247,7 +238,7 @@ private[spanner] final class SpannerSnapshotInteractions(
                       Mutation.Operation.Update(
                         Mutation.Write(
                           settings.snapshotsTable,
-                          affectedColumns,
+                          Snapshots.Columns,
                           List(
                             ListValue(
                               columnList

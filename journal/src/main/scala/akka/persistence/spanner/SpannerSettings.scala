@@ -60,7 +60,6 @@ private[spanner] final class SpannerSettings(config: Config) {
   val grpcClient = config.getString("grpc-client")
   val maxWriteRetries = config.getInt("max-write-retries")
   val maxWriteRetryTimeout = config.getDuration("max-write-retry-timeout").asScala
-  val metaEnabled = config.getBoolean("with-meta")
 
   val snapshotsTable = config.getString("snapshot.table")
   val sessionPool = new SessionPoolSettings(config.getConfig("session-pool"))

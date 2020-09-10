@@ -85,21 +85,18 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
             None
           )
 
-          if (!journalSettings.metaEnabled) write
-          else {
-            pr.metadata match {
-              case Some(replicatedMeta) =>
-                val m = replicatedMeta.asInstanceOf[AnyRef]
-                val serializedMeta = serialization.serialize(m).get
-                val serializedMetaAsString = Base64.getEncoder.encodeToString(serializedMeta)
-                val metaSerializer = serialization.findSerializerFor(m)
-                val metaManifest = Serializers.manifestFor(metaSerializer, m)
-                val id: Int = metaSerializer.identifier
-                write.copy(metadata = Some(SerializedEventMetadata(id, metaManifest, serializedMetaAsString)))
-              case None =>
-                // meta enabled but regular entity
-                write
-            }
+          pr.metadata match {
+            case None =>
+              // meta enabled but regular entity
+              write
+            case Some(replicatedMeta) =>
+              val m = replicatedMeta.asInstanceOf[AnyRef]
+              val serializedMeta = serialization.serialize(m).get
+              val serializedMetaAsString = Base64.getEncoder.encodeToString(serializedMeta)
+              val metaSerializer = serialization.findSerializerFor(m)
+              val metaManifest = Serializers.manifestFor(metaSerializer, m)
+              val id: Int = metaSerializer.identifier
+              write.copy(metadata = Some(SerializedEventMetadata(id, metaManifest, serializedMetaAsString)))
           }
         }
       }

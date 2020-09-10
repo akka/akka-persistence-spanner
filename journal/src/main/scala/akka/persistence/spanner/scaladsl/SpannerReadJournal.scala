@@ -15,7 +15,6 @@ import akka.persistence.spanner.internal.SpannerJournalInteractions.Schema
 import akka.persistence.spanner.internal.{ContinuousQuery, SpannerGrpcClientExtension, SpannerJournalInteractions}
 import akka.persistence.spanner.{SpannerOffset, SpannerSettings}
 import akka.serialization.SerializationExtension
-import akka.stream.OverflowStrategy
 import akka.stream.scaladsl
 import akka.stream.scaladsl.Source
 import com.google.protobuf.struct.Value.Kind.StringValue
@@ -62,10 +61,8 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
   private val PersistenceIdsQuery =
     s"SELECT DISTINCT persistence_id from ${settings.journalTable}"
 
-  private val EventsForPersistenceIdSql = {
-    val columns = if (!settings.metaEnabled) Schema.Journal.Columns else Schema.Journal.ColumnsWithMeta
-    s"SELECT ${columns.mkString(",")} FROM ${settings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
-  }
+  private val EventsForPersistenceIdSql =
+    s"SELECT ${Schema.Journal.Columns.mkString(",")} FROM ${settings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr"
 
   override def currentEventsByTag(tag: String, offset: Offset): scaladsl.Source[EventEnvelope, NotUsed] = {
     val spannerOffset = toSpannerOffset(offset)
@@ -194,12 +191,10 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
           pr.payload,
           pr.timestamp
         )
-        if (!settings.metaEnabled) envelope
-        else
-          pr.metadata match {
-            case Some(meta) => envelope.withMetadata(meta)
-            case None => envelope
-          }
+        pr.metadata match {
+          case Some(meta) => envelope.withMetadata(meta)
+          case None => envelope
+        }
       }
 
       val (pr, commitTimestamp) = Schema.Journal.deserializeRow(settings, serialization, row)

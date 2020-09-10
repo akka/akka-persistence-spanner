@@ -44,13 +44,6 @@ private[spanner] object SpannerJournalInteractions {
 
   object Schema {
     object Journal {
-      private def metaColumns =
-        """
-          |   meta BYTES(MAX),
-          |   meta_ser_id INT64,
-          |   meta_ser_manifest STRING(MAX),
-          |""".stripMargin
-
       def journalTable(settings: SpannerSettings): String =
         s"""CREATE TABLE ${settings.journalTable} (
            |  persistence_id STRING(MAX) NOT NULL,
@@ -60,7 +53,9 @@ private[spanner] object SpannerJournalInteractions {
            |  ser_manifest STRING(MAX) NOT NULL,
            |  write_time TIMESTAMP NOT NULL OPTIONS (allow_commit_timestamp=true),
            |  writer_uuid STRING(MAX) NOT NULL,
-           |  ${if (settings.metaEnabled) metaColumns else ""}
+           |  meta BYTES(MAX),
+           |  meta_ser_id INT64,
+           |  meta_ser_manifest STRING(MAX),
            |) PRIMARY KEY (persistence_id, sequence_nr)""".stripMargin
 
       val PersistenceId = "persistence_id" -> Type(TypeCode.STRING)
@@ -75,8 +70,8 @@ private[spanner] object SpannerJournalInteractions {
       val MetaSerManifest = "meta_ser_manifest" -> Type(TypeCode.STRING)
 
       val Columns: immutable.Seq[String] =
-        List(PersistenceId, SeqNr, Event, SerId, SerManifest, WriteTime, WriterUUID).map(_._1)
-      val ColumnsWithMeta: immutable.Seq[String] = Columns ++ List(Meta, MetaSerId, MetaSerManifest).map(_._1)
+        List(PersistenceId, SeqNr, Event, SerId, SerManifest, WriteTime, WriterUUID, Meta, MetaSerId, MetaSerManifest)
+          .map(_._1)
 
       val formatter = (new DateTimeFormatterBuilder)
         .appendOptional(DateTimeFormatter.ISO_LOCAL_DATE_TIME)
@@ -115,20 +110,18 @@ private[spanner] object SpannerJournalInteractions {
         val repr = PersistentRepr(payload, sequenceNr, persistenceId, writerUuid = writerUuid)
           .withTimestamp(writeTimestamp)
 
+        val nextValue = iterator.next()
         val reprWithMeta =
-          if (!settings.metaEnabled) repr
+          if (nextValue.kind.isNullValue) repr
           else {
-            val nextValue = iterator.next()
-            if (nextValue.kind.isNullValue) repr
-            else {
-              val metaAsString = nextValue.getStringValue
-              val metaSerId = iterator.next.getStringValue.toInt
-              val metaSerManifest = iterator.next.getStringValue
-              val metaAsBytes = Base64.getDecoder.decode(metaAsString)
-              val meta = serialization.deserialize(metaAsBytes, metaSerId, metaSerManifest).get
-              repr.withMetadata(meta)
-            }
+            val metaAsString = nextValue.getStringValue
+            val metaSerId = iterator.next.getStringValue.toInt
+            val metaSerManifest = iterator.next.getStringValue
+            val metaAsBytes = Base64.getDecoder.decode(metaAsString)
+            val meta = serialization.deserialize(metaAsBytes, metaSerId, metaSerManifest).get
+            repr.withMetadata(meta)
           }
+
         (reprWithMeta, writeOriginal)
       }
     }
@@ -194,10 +187,8 @@ private[spanner] class SpannerJournalInteractions(
   val HighestSequenceNrSql =
     s"SELECT sequence_nr FROM ${journalSettings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @sequence_nr ORDER BY sequence_nr DESC LIMIT 1"
 
-  val ReplaySql = {
-    val columns = if (!journalSettings.metaEnabled) Journal.Columns else Journal.ColumnsWithMeta
-    s"SELECT ${columns.mkString(",")} FROM ${journalSettings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr limit @max"
-  }
+  val ReplaySql =
+    s"SELECT ${Journal.Columns.mkString(",")} FROM ${journalSettings.journalTable} WHERE persistence_id = @persistence_id AND sequence_nr >= @from_sequence_Nr AND sequence_nr <= @to_sequence_nr ORDER BY sequence_nr limit @max"
 
   val SqlDeleteInsertToDeletions =
     s"INSERT INTO ${journalSettings.deletionsTable}(persistence_id, deleted_to) VALUES (@persistence_id, @sequence_nr)"
@@ -207,7 +198,7 @@ private[spanner] class SpannerJournalInteractions(
 
   def writeEvents(events: Seq[SerializedWrite]): Future[Unit] = {
     val mutations = events.flatMap { sw =>
-      val noMetaColumnList =
+      val columnValues =
         Vector(
           Value(StringValue(sw.persistenceId)),
           Value(StringValue(sw.sequenceNr.toString)), // ints and longs are StringValues :|
@@ -217,34 +208,31 @@ private[spanner] class SpannerJournalInteractions(
           // special value for a timestamp that gets the write timestamp
           Value(StringValue("spanner.commit_timestamp()")),
           Value(StringValue(sw.writerUuid))
-        )
-      val columnValueList =
-        if (!journalSettings.metaEnabled) noMetaColumnList
-        else {
+        ) ++ (
           sw.metadata match {
             case Some(meta) =>
-              noMetaColumnList ++ Vector(
+              Vector(
                 Value(StringValue(meta.payload)),
                 Value(StringValue(meta.serId.toString)),
                 Value(StringValue(meta.serManifest))
               )
             case None =>
-              noMetaColumnList ++ Vector(
+              Vector(
                 Value(nullValue),
                 Value(nullValue),
                 Value(nullValue)
               )
           }
-        }
+        )
 
       val eventMutation = Mutation(
         Mutation.Operation.Insert(
           Mutation.Write(
             journalSettings.journalTable,
-            if (!journalSettings.metaEnabled) Journal.Columns else Journal.ColumnsWithMeta,
+            Journal.Columns,
             List(
               ListValue(
-                columnValueList
+                columnValues
               )
             )
           )
