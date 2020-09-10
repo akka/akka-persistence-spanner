@@ -24,8 +24,9 @@ inThisBuild(
     parallelExecution := false,
     // add snapshot repo when Akka version overriden
     resolvers ++=
-      (if (System.getProperty("override.akka.version") != null) Seq("Akka Snapshots".at("https://repo.akka.io/snapshots/"))
-      else Seq.empty)
+      (if (System.getProperty("override.akka.version") != null)
+         Seq("Akka Snapshots".at("https://repo.akka.io/snapshots/"))
+       else Seq.empty)
   )
 )
 
