@@ -4,12 +4,15 @@
 
 package akka.persistence.spanner.internal
 
-import java.util.concurrent.atomic.AtomicInteger
+import akka.NotUsed
 
+import java.util.concurrent.atomic.AtomicInteger
 import akka.actor.testkit.typed.scaladsl.{LogCapturing, ScalaTestWithActorTestKit}
 import akka.actor.typed.ActorRef
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool.PooledSession
+import akka.stream.scaladsl.Sink
+import akka.stream.scaladsl.Source
 import com.google.protobuf.empty.Empty
 import com.google.protobuf.struct.Struct
 import com.google.spanner.v1._
@@ -118,13 +121,32 @@ class StubbedSpannerGrpcClientSpec
       val fakeClient = new AbstractStubbedSpannerClient {
         override def executeSql(in: ExecuteSqlRequest): Future[ResultSet] =
           Future.failed(
-            new StatusRuntimeException(Status.fromCode(Status.Code.NOT_FOUND).withDescription("Session not found"))
+            Status.fromCode(Status.Code.NOT_FOUND).withDescription("Session not found").asRuntimeException()
           )
       }
       val client = new SpannerGrpcClient("session-re-create", fakeClient, system, settings) {
         override protected def createPool(): ActorRef[SessionPool.Command] = pool.ref
       }
       client.withSession(session => client.executeQuery("select * from cats", Struct(), Map.empty)(session))
+      val request = pool.expectMessageType[SessionPool.GetSession]
+      request.replyTo ! PooledSession(Session("cat"), request.id)
+      pool.expectMessage(SessionPool.ReleaseSession(request.id, recreate = true))
+    }
+
+    "request session to re-recreated if session NOT_FOUND during streaming query" in {
+      val pool = createTestProbe[SessionPool.Command]
+      val fakeClient = new AbstractStubbedSpannerClient {
+        override def executeStreamingSql(
+            in: com.google.spanner.v1.ExecuteSqlRequest
+        ): Source[com.google.spanner.v1.PartialResultSet, akka.NotUsed] =
+          Source.failed[com.google.spanner.v1.PartialResultSet](
+            Status.fromCode(Status.Code.NOT_FOUND).withDescription("Session not found").asRuntimeException()
+          )
+      }
+      val client = new SpannerGrpcClient("session-re-create", fakeClient, system, settings) {
+        override protected def createPool(): ActorRef[SessionPool.Command] = pool.ref
+      }
+      client.streamingQuery("select * from cats", None, Map.empty).runWith(Sink.ignore)
       val request = pool.expectMessageType[SessionPool.GetSession]
       request.replyTo ! PooledSession(Session("cat"), request.id)
       pool.expectMessage(SessionPool.ReleaseSession(request.id, recreate = true))

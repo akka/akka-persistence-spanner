@@ -25,6 +25,10 @@ import scala.collection.immutable
 import scala.concurrent.{ExecutionContext, Future}
 import scala.util.{Failure, Success, Try}
 
+/**
+ * INTERNAL API
+ */
+@InternalApi
 object SpannerJournal {
   case class WriteFinished(persistenceId: String, done: Future[_])
 }
@@ -110,8 +114,12 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
       }
     }
 
+    val persistenceId = messages.head.persistenceId
     val write = Future.sequence(messages.map(aw => atomicWrite(aw)))
-    writesInProgress.put(messages.head.persistenceId, write)
+    writesInProgress.put(persistenceId, write)
+    write.onComplete { _ =>
+      context.self ! WriteFinished(persistenceId, write)
+    }
     write
   }
 

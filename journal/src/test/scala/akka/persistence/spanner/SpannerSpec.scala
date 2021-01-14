@@ -141,7 +141,7 @@ trait SpannerLifecycle
   private val log = LoggerFactory.getLogger(classOf[SpannerLifecycle])
 
   private val pidCounter = new AtomicLong(0)
-  def nextPid = s"p-${pidCounter.incrementAndGet()}"
+  def nextPid() = s"p-${pidCounter.incrementAndGet()}"
 
   private val tagCounter = new AtomicLong(0)
   def nextTag = s"tag-${tagCounter.incrementAndGet()}"

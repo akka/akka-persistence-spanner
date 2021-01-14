@@ -218,7 +218,10 @@ private[spanner] final class SessionPool(
           availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
           handOutSessionToQueuedRequest()
         } else {
-          log.debug("Session released with should re-create. Not returning this session to the pool")
+          log.debugN(
+            "Session released with should re-create. Not returning this session to the pool [{}] (all [{}])",
+            session.name
+          )
           ctx.self ! CreateSingleSession
         }
       } else if (requestQueue.exists(_.id == id)) {
@@ -265,6 +268,7 @@ private[spanner] final class SessionPool(
       this
 
     case SessionKeepAliveSuccess(session) =>
+      log.trace("Session keep alive successful for [{}]", session.name)
       availableSessions.enqueue(AvailableSession(session, System.currentTimeMillis()))
       handOutSessionToQueuedRequest()
       this
@@ -296,7 +300,7 @@ private[spanner] final class SessionPool(
       this
 
     case SessionCreated(s) =>
-      log.debug("Replacement session created {}", s)
+      log.debug("Replacement session created [{}]", s)
       availableSessions.enqueue(AvailableSession(s, System.currentTimeMillis()))
       handOutSessionToQueuedRequest()
       this
@@ -308,7 +312,7 @@ private[spanner] final class SessionPool(
 
     case Stats =>
       statsLogger.debugN(
-        "Sessions inUse {}. Sessions available {}. Uss since last stats: {}. Ids {}. Request queue size {}",
+        "Sessions inUse {}. Sessions available {}. Uses since last stats: {}. Ids {}. Request queue size {}",
         inUseSessions.size,
         availableSessions.size,
         uses,

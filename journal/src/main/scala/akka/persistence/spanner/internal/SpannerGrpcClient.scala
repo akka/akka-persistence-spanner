@@ -52,7 +52,7 @@ private[spanner] object SpannerGrpcClient {
  */
 @InternalApi private[spanner] class SpannerGrpcClient(
     name: String,
-    client: SpannerClient,
+    val client: SpannerClient,
     system: ActorSystem[_],
     settings: SpannerSettings
 ) {
