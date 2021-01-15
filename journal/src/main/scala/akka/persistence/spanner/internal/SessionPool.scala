@@ -219,7 +219,7 @@ private[spanner] final class SessionPool(
           handOutSessionToQueuedRequest()
         } else {
           log.debugN(
-            "Session released with should re-create. Not returning this session to the pool [{}] (all [{}])",
+            "Session released with should re-create. Not returning this session to the pool [{}]",
             session.name
           )
           ctx.self ! CreateSingleSession

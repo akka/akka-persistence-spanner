@@ -141,7 +141,8 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
     val pendingWrite = Option(writesInProgress.get(persistenceId)) match {
       case Some(f) =>
         log.debug("Write in progress for {}, deferring highest seq nr until write completed", persistenceId)
-        f
+        // we only want to make write - replay sequential, not fail if previous write failed
+        f.recover { case _ => Done }(ExecutionContexts.parasitic)
       case None => Future.successful(Done)
     }
     pendingWrite.flatMap(_ => spannerInteractions.readHighestSequenceNr(persistenceId, fromSequenceNr))
