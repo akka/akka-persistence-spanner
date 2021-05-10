@@ -95,8 +95,8 @@ private[spanner] object SpannerGrpcClient {
   /**
    * Executes a write with retries if result is ABORTED
    */
-  def write(mutations: Seq[Mutation])(
-      implicit session: PooledSession
+  def write(mutations: Seq[Mutation])(implicit
+      session: PooledSession
   ): Future[Unit] =
     withWriteRetries { () =>
       client
@@ -119,18 +119,17 @@ private[spanner] object SpannerGrpcClient {
    *         the transaction won't be committed and none of the modifications will have
    *         happened.
    */
-  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])])(
-      implicit session: PooledSession
+  def executeBatchDml(statements: List[(String, Struct, Map[String, Type])])(implicit
+      session: PooledSession
   ): Future[ExecuteBatchDmlResponse] =
     withWriteRetries { () =>
       def createBatchDmlRequest(sessionId: String, transactionId: ByteString): ExecuteBatchDmlRequest = {
-        val s = statements.map {
-          case (sql, params, types) =>
-            ExecuteBatchDmlRequest.Statement(
-              sql,
-              Some(params),
-              types
-            )
+        val s = statements.map { case (sql, params, types) =>
+          ExecuteBatchDmlRequest.Statement(
+            sql,
+            Some(params),
+            types
+          )
         }
         ExecuteBatchDmlRequest(
           sessionId,
@@ -178,8 +177,8 @@ private[spanner] object SpannerGrpcClient {
    *
    * Uses a single use read only transaction.
    */
-  def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type])(
-      implicit session: PooledSession
+  def executeQuery(sql: String, params: Struct, paramTypes: Map[String, Type])(implicit
+      session: PooledSession
   ): Future[ResultSet] =
     client.executeSql(
       ExecuteSqlRequest(
@@ -232,8 +231,8 @@ private[spanner] object SpannerGrpcClient {
     f
   }
 
-  private def withWriteRetries[T](f: () => Future[T])(
-      implicit session: PooledSession
+  private def withWriteRetries[T](f: () => Future[T])(implicit
+      session: PooledSession
   ): Future[T] = {
     val deadLine = settings.maxWriteRetryTimeout.fromNow
     def tryWrite(retriesLeft: Int): Future[T] =

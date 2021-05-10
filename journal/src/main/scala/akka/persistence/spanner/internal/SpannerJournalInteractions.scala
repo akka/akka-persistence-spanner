@@ -239,27 +239,26 @@ private[spanner] class SpannerJournalInteractions(
       if (sw.tags.isEmpty) {
         eventMutation :: Nil
       } else {
-        val serializedTags: List[Mutation] = sw.tags.toList.map(
-          tagName =>
-            Mutation(
-              Mutation.Operation.Insert(
-                Mutation.Write(
-                  journalSettings.eventTagTable,
-                  Tags.Columns,
-                  List(
-                    ListValue(
-                      List(
-                        Value(StringValue(sw.persistenceId)),
-                        Value(StringValue(sw.sequenceNr.toString)), // ints and longs are StringValues :|
-                        Value(StringValue(tagName)),
-                        // special value for a timestamp that gets the write timestamp
-                        Value(StringValue("spanner.commit_timestamp()"))
-                      )
+        val serializedTags: List[Mutation] = sw.tags.toList.map(tagName =>
+          Mutation(
+            Mutation.Operation.Insert(
+              Mutation.Write(
+                journalSettings.eventTagTable,
+                Tags.Columns,
+                List(
+                  ListValue(
+                    List(
+                      Value(StringValue(sw.persistenceId)),
+                      Value(StringValue(sw.sequenceNr.toString)), // ints and longs are StringValues :|
+                      Value(StringValue(tagName)),
+                      // special value for a timestamp that gets the write timestamp
+                      Value(StringValue("spanner.commit_timestamp()"))
                     )
                   )
                 )
               )
             )
+          )
         )
 
         eventMutation :: serializedTags
@@ -284,7 +283,9 @@ private[spanner] class SpannerJournalInteractions(
           Map("persistence_id" -> Value(StringValue(persistenceId)), "sequence_nr" -> Value(StringValue(to.toString)))
         )
       for {
-        highestDeletedTo <- findHighestDeletedTo(persistenceId) // user may have passed in a smaller value than previously deleted
+        highestDeletedTo <- findHighestDeletedTo(
+          persistenceId
+        ) // user may have passed in a smaller value than previously deleted
         toDeleteTo <- {
           if (toSequenceNr == Long.MaxValue) { // special to delete all but don't set max deleted to it
             internalReadHighestSequenceNr(persistenceId, highestDeletedTo)
@@ -345,8 +346,8 @@ private[spanner] class SpannerJournalInteractions(
         else resultSet.rows.head.values.head.getStringValue.toLong
       }
 
-  private def internalReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long)(
-      implicit session: PooledSession
+  private def internalReadHighestSequenceNr(persistenceId: String, fromSequenceNr: Long)(implicit
+      session: PooledSession
   ): Future[Long] = {
     val maxDeletedTo: Future[Long] = findHighestDeletedTo(persistenceId)
     val maxSequenceNr: Future[Long] = spannerGrpcClient
@@ -360,18 +361,17 @@ private[spanner] class SpannerJournalInteractions(
         ),
         Map(Journal.PersistenceId, Journal.SeqNr)
       )
-      .map(
-        resultSet =>
-          resultSet.rows.size match {
-            case 0 =>
-              log.debug("No rows for persistence id [{}], using fromSequenceNr [{}]", persistenceId, fromSequenceNr)
-              fromSequenceNr
-            case 1 =>
-              val sequenceNr = resultSet.rows.head.values.head.getStringValue.toLong
-              log.debug("Single row. {}", sequenceNr)
-              sequenceNr
-            case _ => throw new RuntimeException("More than one row returned from a limit 1 query. " + resultSet)
-          }
+      .map(resultSet =>
+        resultSet.rows.size match {
+          case 0 =>
+            log.debug("No rows for persistence id [{}], using fromSequenceNr [{}]", persistenceId, fromSequenceNr)
+            fromSequenceNr
+          case 1 =>
+            val sequenceNr = resultSet.rows.head.values.head.getStringValue.toLong
+            log.debug("Single row. {}", sequenceNr)
+            sequenceNr
+          case _ => throw new RuntimeException("More than one row returned from a limit 1 query. " + resultSet)
+        }
       )
 
     for {

@@ -21,7 +21,6 @@ import scala.concurrent.duration._
 import scala.util.{Failure, Success}
 
 /**
- *
  * INTERNAL API
  *
  * Sessions are used to execute transactions
@@ -30,7 +29,6 @@ import scala.util.{Failure, Success}
  * See https://github.com/akka/akka-persistence-spanner/issues/12 for future features
  *
  * See google advice for session pools: https://cloud.google.com/spanner/docs/sessions#create_and_size_the_session_cache
- *
  */
 @InternalApi
 private[spanner] object SessionPool {
@@ -138,10 +136,10 @@ private[spanner] object SessionPool {
             if (ctx.log.isInfoEnabled) {
               ctx.log.info("All sessions returned. Shutting down. {}", newSessions.map(_.name))
             }
-            Behaviors.stopped(() => {
+            Behaviors.stopped { () =>
               cleanupOldSessions(client, newSessions)
               done.tryComplete(Success(Done))
-            })
+            }
           } else {
             ctx.log.info("Still waiting on sessions to return: {}", newRemaining.keys)
             shuttingDown(done, client, newSessions, newRemaining)
@@ -151,10 +149,10 @@ private[spanner] object SessionPool {
           if (ctx.log.isInfoEnabled) {
             ctx.log.info("Timed out waiting for sessions to be returned. Shutting down now. {}", toShutdown.map(_.name))
           }
-          Behaviors.stopped(() => {
+          Behaviors.stopped { () =>
             cleanupOldSessions(client, toShutdown)
             done.tryComplete(Success(Done))
-          })
+          }
       }
     }
 

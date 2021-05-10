@@ -219,14 +219,13 @@ class RowCollectorSpec
       )
     )
 
-    examples.foreach {
-      case Example(name, firstPart, secondPart, expectedCombined) =>
-        s"recombine partial resultsets with $name" in {
-          val futureResult = Source(List(firstPart, secondPart)).via(RowCollector).runWith(Sink.seq)
+    examples.foreach { case Example(name, firstPart, secondPart, expectedCombined) =>
+      s"recombine partial resultsets with $name" in {
+        val futureResult = Source(List(firstPart, secondPart)).via(RowCollector).runWith(Sink.seq)
 
-          val rows = futureResult.futureValue
-          rows must ===(expectedCombined)
-        }
+        val rows = futureResult.futureValue
+        rows must ===(expectedCombined)
+      }
     }
 
     "pass non chunked resultsets as is" in {
@@ -273,8 +272,8 @@ class RowCollectorSpec
       ).via(RowCollector).runWith(Sink.seq)
 
       val rows = futureResult.futureValue
-      rows must have size (1)
-      rows.head must have size (1)
+      rows must have size 1
+      rows.head must have size 1
       rows.head.head.kind.stringValue must ===(Some("hakker"))
     }
 
@@ -295,7 +294,7 @@ class RowCollectorSpec
       ).via(RowCollector).runWith(Sink.seq)
 
       val rows = futureResult.futureValue
-      rows must have size (1)
+      rows must have size 1
       rows.head must ===(Seq(Value(Kind.StringValue("value1"))))
     }
 
@@ -321,7 +320,7 @@ class RowCollectorSpec
       ).via(RowCollector).runWith(Sink.seq)
 
       val rows = futureResult.futureValue
-      rows must have size (1)
+      rows must have size 1
       rows.head must ===(Seq(Value(Kind.StringValue("value1")), Value(Kind.StringValue("value2"))))
     }
 

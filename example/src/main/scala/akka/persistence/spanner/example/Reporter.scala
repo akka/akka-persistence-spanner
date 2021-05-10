@@ -12,10 +12,9 @@ object Reporter {
     Behaviors.setup { ctx =>
       ctx.log.info("Subscribing to latency stats")
       topic ! Topic.Subscribe(ctx.self)
-      Behaviors.receiveMessage[ReadSideTopic.ReadSideMetrics] {
-        case ReadSideMetrics(count, max, p99, p50) =>
-          ctx.log.infoN("Read side Count: {} Max: {} p99: {} p50: {}", count, max, p99, p50)
-          Behaviors.same
+      Behaviors.receiveMessage[ReadSideTopic.ReadSideMetrics] { case ReadSideMetrics(count, max, p99, p50) =>
+        ctx.log.infoN("Read side Count: {} Max: {} p99: {} p50: {}", count, max, p99, p50)
+        Behaviors.same
       }
     }
 }

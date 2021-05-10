@@ -61,8 +61,7 @@ class EventsByTagSpec extends SpannerSpec {
         for (i <- 1 to 20) {
           val expectedEvent = s"e-$i"
           withClue(s"Expected event $expectedEvent") {
-            result.expectNextPF {
-              case EventEnvelope(_, _, _, WithTags(`expectedEvent`, `tags`, _)) =>
+            result.expectNextPF { case EventEnvelope(_, _, _, WithTags(`expectedEvent`, `tags`, _)) =>
             }
           }
         }
@@ -89,10 +88,10 @@ class EventsByTagSpec extends SpannerSpec {
           withClue(s"Expected event $expectedEvent") {
             withOffset.expectNextPF {
               case EventEnvelope(
-                  SpannerOffset(_, seen),
-                  persistenceId,
-                  sequenceNr,
-                  WithTags(`expectedEvent`, `tags`, _)
+                    SpannerOffset(_, seen),
+                    persistenceId,
+                    sequenceNr,
+                    WithTags(`expectedEvent`, `tags`, _)
                   ) if seen(persistenceId) == sequenceNr =>
             }
           }
@@ -142,8 +141,7 @@ class EventsByTagSpec extends SpannerSpec {
       for (i <- 1 to 20) {
         val expectedEvent = s"e-$i"
         withClue(s"Expected event $expectedEvent") {
-          result.expectNextPF {
-            case EventEnvelope(_, _, _, WithTags(`expectedEvent`, `tags`, _)) =>
+          result.expectNextPF { case EventEnvelope(_, _, _, WithTags(`expectedEvent`, `tags`, _)) =>
           }
         }
       }
@@ -161,8 +159,7 @@ class EventsByTagSpec extends SpannerSpec {
       for (i <- 21 to 40) {
         val expectedEvent = s"e-$i"
         withClue(s"Expected event $expectedEvent") {
-          result.expectNextPF {
-            case EventEnvelope(_, _, _, WithTags(`expectedEvent`, `tags`, _)) =>
+          result.expectNextPF { case EventEnvelope(_, _, _, WithTags(`expectedEvent`, `tags`, _)) =>
           }
         }
       }

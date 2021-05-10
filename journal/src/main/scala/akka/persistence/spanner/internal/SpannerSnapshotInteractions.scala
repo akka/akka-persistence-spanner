@@ -79,8 +79,8 @@ private[spanner] object SpannerSnapshotInteractions {
 private[spanner] final class SpannerSnapshotInteractions(
     spannerGrpcClient: SpannerGrpcClient,
     settings: SpannerSettings
-)(
-    implicit ec: ExecutionContext,
+)(implicit
+    ec: ExecutionContext,
     system: ActorSystem
 ) {
   import SpannerSnapshotInteractions.Schema.Snapshots

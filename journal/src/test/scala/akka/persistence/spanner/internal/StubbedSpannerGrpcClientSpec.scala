@@ -101,15 +101,14 @@ class StubbedSpannerGrpcClientSpec
 
       // should not fail
       client
-        .withSession(
-          session =>
-            client
-              .executeBatchDml(
-                List(
-                  ("PRETENDING TO BE A DML QUERY", Struct(), Map.empty),
-                  ("PRETENDING TO BE ANOTHER DML QUERY", Struct(), Map.empty)
-                )
-              )(session)
+        .withSession(session =>
+          client
+            .executeBatchDml(
+              List(
+                ("PRETENDING TO BE A DML QUERY", Struct(), Map.empty),
+                ("PRETENDING TO BE ANOTHER DML QUERY", Struct(), Map.empty)
+              )
+            )(session)
         )
         .futureValue
       // should have retried

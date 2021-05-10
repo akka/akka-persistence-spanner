@@ -24,8 +24,8 @@ private object SpannerTestkit {
       client: InstanceAdminClient,
       spannerSettings: SpannerSettings,
       testkitSettings: SpannerTestkit.Settings
-  )(
-      implicit ec: ExecutionContext
+  )(implicit
+      ec: ExecutionContext
   ): Unit =
     this.synchronized {
       if (!instanceCreated) {

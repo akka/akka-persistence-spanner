@@ -13,16 +13,20 @@ object SpannerSnapshotStoreSpec {
   val dbName = "SpannerSnapshotStoreSpec"
   val dbNameWithMeta = "SnapStoreSpecWithMeta"
 
-  val config = ConfigFactory.parseString("""
+  val config = ConfigFactory
+    .parseString("""
     akka.loglevel=DEBUG
     akka.persistence.snapshot-store.plugin = "akka.persistence.spanner.snapshot"
-    """).withFallback(SpannerSpec.config(dbName))
+    """)
+    .withFallback(SpannerSpec.config(dbName))
 
   def configWithMeta =
-    ConfigFactory.parseString("""
+    ConfigFactory
+      .parseString("""
       akka.persistence.snapshot-store.plugin = "akka.persistence.spanner.snapshot"
       akka.persistence.spanner.with-meta = true
-    """).withFallback(SpannerSpec.config(dbNameWithMeta))
+    """)
+      .withFallback(SpannerSpec.config(dbNameWithMeta))
 }
 
 class SpannerSnapshotStoreSpec extends SnapshotStoreSpec(SpannerSnapshotStoreSpec.config) with SpannerLifecycle {

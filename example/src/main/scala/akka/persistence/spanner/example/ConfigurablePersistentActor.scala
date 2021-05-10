@@ -1,11 +1,11 @@
 package akka.persistence.spanner.example
 
 import akka.actor.typed.scaladsl.Behaviors
-import akka.actor.typed.{ ActorRef, ActorSystem, Behavior }
+import akka.actor.typed.{ActorRef, ActorSystem, Behavior}
 import akka.cluster.sharding.typed.ShardingEnvelope
-import akka.cluster.sharding.typed.scaladsl.{ ClusterSharding, Entity, EntityTypeKey }
+import akka.cluster.sharding.typed.scaladsl.{ClusterSharding, Entity, EntityTypeKey}
 import akka.persistence.typed.PersistenceId
-import akka.persistence.typed.scaladsl.{ Effect, EventSourcedBehavior }
+import akka.persistence.typed.scaladsl.{Effect, EventSourcedBehavior}
 
 object ConfigurablePersistentActor {
   case class Settings(nrTags: Int)
@@ -30,7 +30,8 @@ object ConfigurablePersistentActor {
           ctx.log.info("persisting event {}", event)
           Effect.persist(event)
         },
-        (state, _) => state.copy(eventsProcessed = state.eventsProcessed + 1)).withTagger(_ => tags)
+        (state, _) => state.copy(eventsProcessed = state.eventsProcessed + 1)
+      ).withTagger(_ => tags)
     }
   }
 }

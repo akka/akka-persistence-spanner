@@ -20,15 +20,14 @@ class SpannerSerializerSpec extends ScalaTestWithActorTestKit with AnyWordSpecLi
       "SpannerOffset-1" -> SpannerOffset(commitTimestamp, Map.empty),
       "SpannerOffset-2" -> SpannerOffset(commitTimestamp, Map("pid1" -> 5L)),
       "SpannerOffset-3" -> SpannerOffset(commitTimestamp, Map("pid1" -> 5L, "pid2" -> 3L, "pid3" -> 7L))
-    ).foreach {
-      case (scenario, item) =>
-        s"resolve serializer for $scenario" in {
-          SerializationExtension(system).findSerializerFor(item).getClass should be(classOf[SpannerSerializer])
-        }
+    ).foreach { case (scenario, item) =>
+      s"resolve serializer for $scenario" in {
+        SerializationExtension(system).findSerializerFor(item).getClass should be(classOf[SpannerSerializer])
+      }
 
-        s"serialize and de-serialize $scenario" in {
-          verifySerialization(item)
-        }
+      s"serialize and de-serialize $scenario" in {
+        verifySerialization(item)
+      }
     }
   }
 

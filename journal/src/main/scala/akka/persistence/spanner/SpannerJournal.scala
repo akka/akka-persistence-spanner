@@ -58,9 +58,8 @@ final class SpannerJournal(config: Config, cfgPath: String) extends AsyncWriteJo
   // them to complete before we can read the highest sequence number or we will miss it
   private val writesInProgress = new java.util.HashMap[String, Future[_]]()
 
-  override def receivePluginInternal: Receive = {
-    case WriteFinished(pid, f) =>
-      writesInProgress.remove(pid, f)
+  override def receivePluginInternal: Receive = { case WriteFinished(pid, f) =>
+    writesInProgress.remove(pid, f)
   }
 
   override def asyncWriteMessages(messages: immutable.Seq[AtomicWrite]): Future[immutable.Seq[Try[Unit]]] = {
