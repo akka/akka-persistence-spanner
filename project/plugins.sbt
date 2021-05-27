@@ -8,7 +8,7 @@ addSbtPlugin("com.lightbend.sbt" % "sbt-java-formatter" % "0.4.4")
 addSbtPlugin("com.lightbend" % "sbt-whitesource" % "0.1.18")
 
 // for releasing
-addSbtPlugin("com.dwijnand" % "sbt-dynver" % "4.0.0")
+addSbtPlugin("com.dwijnand" % "sbt-dynver" % "4.1.1")
 addSbtPlugin("org.foundweekends" % "sbt-bintray" % "0.5.5")
 
 //// docs
