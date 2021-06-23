@@ -1,6 +1,7 @@
 /*
- * Copyright (C) 2009-2021 Lightbend Inc. <https://www.lightbend.com>
+ * Copyright (C) 2021 Lightbend Inc. <https://www.lightbend.com>
  */
+
 package akka.persistence.spanner
 
 import akka.persistence.spanner.internal.SpannerGrpcClientExtension
