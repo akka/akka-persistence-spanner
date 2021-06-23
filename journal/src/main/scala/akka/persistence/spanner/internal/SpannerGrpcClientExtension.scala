@@ -42,22 +42,26 @@ private[spanner] class SpannerGrpcClientExtension(system: ActorSystem[_]) extend
     sessions.computeIfAbsent(
       configLocation,
       configLocation => {
-        val settings = new SpannerSettings(system.settings.config.getConfig(configLocation))
-        val grpcClient: SpannerClient =
-          if (settings.useAuth) {
-            SpannerClient(
-              GrpcClientSettings
-                .fromConfig(settings.grpcClient)
-                .withCallCredentials(
-                  MoreCallCredentials.from(
-                    GoogleCredentials.getApplicationDefault.createScoped("https://www.googleapis.com/auth/spanner.data")
-                  )
-                )
-            )
-          } else {
-            SpannerClient(GrpcClientSettings.fromConfig(settings.grpcClient))
-          }
-        new SpannerGrpcClient(configLocation, grpcClient, system, settings)
+        val config = system.settings.config.getConfig(configLocation)
+        val settings = new SpannerSettings(config)
+
+        val clientSettings = (if (settings.useAuth) {
+                                GrpcClientSettings
+                                  .fromConfig(settings.grpcClient)
+                                  .withCallCredentials(
+                                    MoreCallCredentials.from(
+                                      GoogleCredentials.getApplicationDefault
+                                        .createScoped("https://www.googleapis.com/auth/spanner.data")
+                                    )
+                                  )
+                              } else {
+                                GrpcClientSettings.fromConfig(settings.grpcClient)
+                              }).withChannelBuilderOverrides(
+          channelBuilder =>
+            // let that max be up to spanner
+            channelBuilder.maxInboundMessageSize(Integer.MAX_VALUE)
+        )
+        new SpannerGrpcClient(configLocation, SpannerClient(clientSettings), system, settings)
       }
     )
 }
