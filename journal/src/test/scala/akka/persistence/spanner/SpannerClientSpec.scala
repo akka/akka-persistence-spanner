@@ -24,7 +24,7 @@ class SpannerClientSpec extends SpannerSpec {
           666L,
           "nah",
           // 10mb, spanner request limit
-          ByteString.fromArrayUnsafe(Array.tabulate[Byte](10485760)(_ => 1.toByte)),
+          ByteString.fromArrayUnsafe(Array.tabulate[Byte](10485760)(_.toByte)),
           1L
         )
         .futureValue
