@@ -3,16 +3,27 @@ language: scala
 services:
   - docker
 
+addons:
+  apt:
+    sources:
+      # Official debian package for AdoptOpenJDK from https://adoptopenjdk.net/installation.html#linux-pkg
+      - sourceline: deb https://adoptopenjdk.jfrog.io/adoptopenjdk/deb/ xenial main
+        key_url: https://adoptopenjdk.jfrog.io/adoptopenjdk/api/gpg/key/public
+    packages:
+      - adoptopenjdk-11-hotspot
+
 before_install:
-  # using jabba for custom jdk management
-  - curl -sL https://git.io/jabba | bash && . ~/.jabba/jabba.sh
-  - jabba install adopt@~1.11-0
-  - jabba install adopt@~1.8-0
+  - whereis java
+  - export JAVA_HOME=/usr/lib/jvm/adoptopenjdk-11-hotspot-amd64
+  - export PATH=/usr/lib/jvm/adoptopenjdk-11-hotspot-amd64/bin:$PATH
+  - java -version
+  # Initialize launcher from the correct URL so that later sbt runs work out of the box.
+  # Travis' default sbt launch script refers to `repo.scala-sbt.org` for downloading the launcher
+  # which currently doesn't work any more
+  - sbt -sbt-launch-repo https://repo1.maven.org/maven2 exit
 
 # default script for jobs, that do not have any specified
 script:
-  - jabba use ${JDK:=adopt@~1.8-0}
-  - java -version
   - ${PRE_CMD:=true} && sbt -jvm-opts .jvmopts-travis "$CMD"
 
 jobs:
@@ -39,10 +50,9 @@ jobs:
       name: "Run tests (AdoptOpenJDK 8)"
     - env:
       - PRE_CMD="./docker/setup_emulator.sh"
-      - JDK="adopt@~1.11-0"
       - CMD=";test"
       name: "Run tests (AdoptOpenJDK 11)"
-    - script: jabba use adopt@~1.11-0 && java -version && ./docker/setup_emulator && ./testLatestAkkaSnapshot.sh
+    - script: ./docker/setup_emulator && ./testLatestAkkaSnapshot.sh
       name: "Run tests with Akka snapshot"
       if: type = cron
 
@@ -66,7 +76,6 @@ cache:
   directories:
     - $HOME/.ivy2/cache
     - $HOME/.sbt/boot
-    - $HOME/.jabba/jdk
 
 env:
   global:
