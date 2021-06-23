@@ -5,11 +5,11 @@
 package akka.persistence.spanner.internal
 
 import java.util.concurrent.atomic.AtomicLong
-
 import akka.actor.typed.scaladsl.AskPattern._
 import akka.actor.typed.scaladsl.{Behaviors, LoggerOps}
 import akka.actor.typed.{ActorRef, ActorSystem, SupervisorStrategy}
 import akka.annotation.InternalApi
+import akka.annotation.InternalStableApi
 import akka.dispatch.ExecutionContexts
 import akka.persistence.spanner.SpannerSettings
 import akka.persistence.spanner.internal.SessionPool._
@@ -31,8 +31,8 @@ import scala.util.{Failure, Success}
 /**
  * INTERNAL API
  */
-@InternalApi
-private[spanner] object SpannerGrpcClient {
+@InternalStableApi
+object SpannerGrpcClient {
   final class TransactionFailed(code: Int, message: String, details: Any)
       extends RuntimeException(s"Code $code. Message: $message. Params: $details")
 
@@ -49,8 +49,11 @@ private[spanner] object SpannerGrpcClient {
 
 /**
  * A thin wrapper around the gRPC client to expose only what the plugin needs.
+ *
+ * INTERNAL API
  */
-@InternalApi private[spanner] class SpannerGrpcClient(
+@InternalStableApi
+final class SpannerGrpcClient(
     name: String,
     val client: SpannerClient,
     system: ActorSystem[_],
