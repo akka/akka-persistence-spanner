@@ -53,7 +53,7 @@ object SpannerGrpcClient {
  * INTERNAL API
  */
 @InternalStableApi
-final class SpannerGrpcClient(
+class SpannerGrpcClient(
     name: String,
     val client: SpannerClient,
     system: ActorSystem[_],
