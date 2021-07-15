@@ -14,7 +14,7 @@ object Dependencies {
   val AkkaHttpVersion = "10.2.3"
   val AkkaManagementVersion = "1.0.6"
 
-  val SpannerVersion = "1.52.0"
+  val SpannerVersion = "1.61.0"
   val GrpcVersion = akka.grpc.gen.BuildInfo.grpcVersion
   val GoogleAuthVersion = "0.27.0"
 
