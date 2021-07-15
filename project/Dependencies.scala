@@ -56,7 +56,7 @@ object Dependencies {
 
     val logback = Compile.logback % Test
     val scalaTest = "org.scalatest" %% "scalatest" % "3.1.1" % Test // ApacheV2
-    val junit = "junit" % "junit" % "4.12" % Test // Eclipse Public License 1.0
+    val junit = "junit" % "junit" % "4.13.2" % Test // Eclipse Public License 1.0
     val junitInterface = "com.novocode" % "junit-interface" % "0.11" % Test // "BSD 2-Clause"
   }
 
