@@ -42,8 +42,8 @@ import scala.concurrent.{Await, ExecutionContext, Future}
 
 object SpannerSpec {
   private var instanceCreated = false
-  def ensureInstanceCreated(client: InstanceAdminClient, spannerSettings: SpannerSettings)(
-      implicit ec: ExecutionContext
+  def ensureInstanceCreated(client: InstanceAdminClient, spannerSettings: SpannerSettings)(implicit
+      ec: ExecutionContext
   ): Unit =
     this.synchronized {
       if (!instanceCreated) {
@@ -273,14 +273,15 @@ trait SpannerLifecycle
         deletions <- spannerClient.executeSql(
           ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.deletionsTable}")
         )
-        snapshotRows <- if (withSnapshotStore)
-          spannerClient
-            .executeSql(
-              ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.snapshotsTable}")
-            )
-            .map(_.rows)
-        else
-          Future.successful(Seq.empty)
+        snapshotRows <-
+          if (withSnapshotStore)
+            spannerClient
+              .executeSql(
+                ExecuteSqlRequest(session = session.name, sql = s"select * from ${spannerSettings.snapshotsTable}")
+              )
+              .map(_.rows)
+          else
+            Future.successful(Seq.empty)
         _ <- spannerClient.deleteSession(DeleteSessionRequest(session.name))
       } yield (execute.rows, deletions.rows, snapshotRows)
       val (messageRows, deletionRows, snapshotRows) = rows.futureValue
@@ -318,9 +319,8 @@ trait SpannerLifecycle
       .mkString("[", ", ", "]")
 
   override protected def afterAll(): Unit =
-    try {
-      cleanup()
-    } finally {
+    try cleanup()
+    finally {
       super.afterAll()
       testKit.shutdownTestKit()
     }

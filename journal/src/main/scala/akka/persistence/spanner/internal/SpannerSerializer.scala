@@ -47,9 +47,8 @@ import akka.serialization.SerializerWithStringManifest
       val seqNr = offset.seen.head._2
       str.append(separator).append(pid).append(separator).append(seqNr)
     } else if (offset.seen.nonEmpty) {
-      offset.seen.toList.sortBy(_._1).foreach {
-        case (pid, seqNr) =>
-          str.append(separator).append(pid).append(separator).append(seqNr)
+      offset.seen.toList.sortBy(_._1).foreach { case (pid, seqNr) =>
+        str.append(separator).append(pid).append(separator).append(seqNr)
       }
     }
     str.toString.getBytes(UTF_8)

@@ -1,6 +1,6 @@
 package akka.persistence.spanner.example
 
-import akka.actor.typed.{ ActorRef, Behavior }
+import akka.actor.typed.{ActorRef, Behavior}
 import akka.actor.typed.scaladsl.Behaviors
 import akka.cluster.sharding.typed.ShardingEnvelope
 import com.typesafe.config.Config
@@ -15,7 +15,8 @@ object LoadGenerator {
       Settings(
         config.getInt("persistence-ids"),
         config.getDuration("load-tick-duration").asScala,
-        config.getInt("events-per-tick"))
+        config.getInt("events-per-tick")
+      )
   }
 
   case class Settings(nrPersistenceIds: Int, tickDuration: FiniteDuration, eventsPerTick: Int)
@@ -39,7 +40,8 @@ object LoadGenerator {
             (0 to settings.eventsPerTick).foreach { _ =>
               ref ! ShardingEnvelope(
                 s"p${Random.nextInt(settings.nrPersistenceIds)}",
-                ConfigurablePersistentActor.Event())
+                ConfigurablePersistentActor.Event()
+              )
             }
             Behaviors.same
           case Stop =>

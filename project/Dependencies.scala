@@ -33,13 +33,19 @@ object Dependencies {
 
     // used in the end to end example
     val akkaManagement = "com.lightbend.akka.management" %% "akka-management" % AkkaManagementVersion
-    val akkaManagementClusterBootstrap = "com.lightbend.akka.management" %% "akka-management-cluster-bootstrap" % AkkaManagementVersion
-    val akkaManagementClusterHttp = "com.lightbend.akka.management" %% "akka-management-cluster-http" % AkkaManagementVersion
-    val akkaDiscoveryKubernetesApi = "com.lightbend.akka.discovery" %% "akka-discovery-kubernetes-api" % AkkaManagementVersion
+    val akkaManagementClusterBootstrap =
+      "com.lightbend.akka.management" %% "akka-management-cluster-bootstrap" % AkkaManagementVersion
+    val akkaManagementClusterHttp =
+      "com.lightbend.akka.management" %% "akka-management-cluster-http" % AkkaManagementVersion
+    val akkaDiscoveryKubernetesApi =
+      "com.lightbend.akka.discovery" %% "akka-discovery-kubernetes-api" % AkkaManagementVersion
 
-    val spannerProtobuf = "com.google.api.grpc" % "proto-google-cloud-spanner-v1" % SpannerVersion % "protobuf-src" // Apache-2.0
-    val spannerAdminProtobuf = "com.google.api.grpc" % "proto-google-cloud-spanner-admin-database-v1" % SpannerVersion % "protobuf-src" // Apache-2.0
-    val spannerAdminInstanceProtobuf = "com.google.api.grpc" % "proto-google-cloud-spanner-admin-instance-v1" % SpannerVersion % "protobuf-src" // Apache-2.0
+    val spannerProtobuf =
+      "com.google.api.grpc" % "proto-google-cloud-spanner-v1" % SpannerVersion % "protobuf-src" // Apache-2.0
+    val spannerAdminProtobuf =
+      "com.google.api.grpc" % "proto-google-cloud-spanner-admin-database-v1" % SpannerVersion % "protobuf-src" // Apache-2.0
+    val spannerAdminInstanceProtobuf =
+      "com.google.api.grpc" % "proto-google-cloud-spanner-admin-instance-v1" % SpannerVersion % "protobuf-src" // Apache-2.0
 
     val grpcAuth = "io.grpc" % "grpc-auth" % GrpcVersion // Apache-2.0
     val googleAuth = "com.google.auth" % "google-auth-library-oauth2-http" % GoogleAuthVersion // "BSD 3-Clause"

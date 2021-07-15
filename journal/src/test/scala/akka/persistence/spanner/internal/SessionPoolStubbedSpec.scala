@@ -72,7 +72,9 @@ class SessionPoolStubbedSpec
     with AnyWordSpecLike
     with LogCapturing {
   class Setup(nrSessions: Int = 2, outstandingRequest: Int = 1) {
-    val settings = new SpannerSettings(ConfigFactory.parseString(s"""
+    val settings = new SpannerSettings(
+      ConfigFactory
+        .parseString(s"""
          session-pool {
            max-size = $nrSessions
            retry-create-interval = 500ms
@@ -80,7 +82,9 @@ class SessionPoolStubbedSpec
            keep-alive-interval = 1s
            shutdown-timeout = 1s
          }
-      """).withFallback(ConfigFactory.load().getConfig("akka.persistence.spanner")))
+      """)
+        .withFallback(ConfigFactory.load().getConfig("akka.persistence.spanner"))
+    )
     val probe = testKit.createTestProbe[Invocation]()
     val stub = new StubbedSpannerClient(probe)
     val pool = testKit.spawn(SessionPool(stub, settings))

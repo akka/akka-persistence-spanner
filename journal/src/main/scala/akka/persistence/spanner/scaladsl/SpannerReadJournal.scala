@@ -121,13 +121,12 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
       settings.querySettings.refreshInterval
     ).statefulMapConcat[String] { () =>
       var seenIds = Set.empty[String]
-      pid => {
+      pid =>
         if (seenIds.contains(pid)) Nil
         else {
           seenIds += pid
           pid :: Nil
         }
-      }
     }
   }
 
@@ -139,13 +138,12 @@ final class SpannerReadJournal(system: ExtendedActorSystem, config: Config, cfgP
     ContinuousQuery[Long, EventEnvelope](
       fromSequenceNr - 1, // we always add 1 back below before querying
       (_, ee) => ee.sequenceNr,
-      currentSequenceNr => {
+      currentSequenceNr =>
         if (currentSequenceNr == toSequenceNr) {
           None
         } else {
           Some(currentEventsByPersistenceId(persistenceId, currentSequenceNr + 1, toSequenceNr))
-        }
-      },
+        },
       0,
       settings.querySettings.refreshInterval
     )

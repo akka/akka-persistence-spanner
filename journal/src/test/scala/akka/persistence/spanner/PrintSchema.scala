@@ -19,9 +19,8 @@ object PrintSchema {
 
     def withWriter(name: String)(f: PrintWriter => Unit): Unit = {
       val writer: PrintWriter = new PrintWriter(new File(name))
-      try {
-        f(writer)
-      } finally {
+      try f(writer)
+      finally {
         writer.flush()
         writer.close()
       }

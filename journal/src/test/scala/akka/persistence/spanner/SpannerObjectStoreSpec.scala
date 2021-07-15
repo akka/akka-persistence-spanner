@@ -33,7 +33,7 @@ class SpannerObjectStoreSpec extends SpannerSpec("SpannerObjectStoreSpec") {
     "save and retrieve a binary value" in {
       val persistenceId = PersistenceId(entityType, "my-id-for-binary-value")
       // this is not a valid UTF-8 string:
-      val value = ByteString(Array[Byte](0xC0.toByte, 0xC1.toByte))
+      val value = ByteString(Array[Byte](0xc0.toByte, 0xc1.toByte))
       spannerInteractions.upsertObject(entityType, persistenceId, serId, serManifest, value, seqNr = 1L).futureValue
       spannerInteractions.getObject(persistenceId).futureValue should be(Some(Result(value, serId, serManifest, 1L)))
     }
@@ -108,7 +108,7 @@ class SpannerObjectStoreSpec extends SpannerSpec("SpannerObjectStoreSpec") {
       spannerInteractions.upsertObject(entityType, persistenceId2, serId, serManifest, value2, seqNr = 1L).futureValue
 
       val changes1 = spannerInteractions.currentChanges(entityType, NoOffset).runWith(Sink.seq).futureValue
-      changes1 should have size (2)
+      changes1 should have size 2
       val change1 = changes1.head
       change1 should be(Change(persistenceId1.id, value1, serId, serManifest, 1L, change1.offset))
       val change2 = changes1(1)

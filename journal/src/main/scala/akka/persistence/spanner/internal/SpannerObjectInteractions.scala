@@ -102,8 +102,8 @@ object SpannerObjectInteractions {
 private[spanner] final class SpannerObjectInteractions(
     spannerGrpcClient: SpannerGrpcClient,
     settings: SpannerSettings
-)(
-    implicit ec: ExecutionContext,
+)(implicit
+    ec: ExecutionContext,
     system: ActorSystem
 ) {
   import SpannerObjectInteractions.Schema.Objects
@@ -134,10 +134,10 @@ private[spanner] final class SpannerObjectInteractions(
       seqNr: Long
   ): Future[Unit] = {
     require(seqNr > 0, "Sequence number should start at 1")
-    spannerGrpcClient.withSession(session => {
+    spannerGrpcClient.withSession { session =>
       if (seqNr == 1) insertFirst(entity, persistenceId, serId, serManifest, value, seqNr, session)
       else update(entity, persistenceId, serId, serManifest, value, seqNr, session)
-    })
+    }
   }
 
   private object CommitTimestamp
@@ -174,14 +174,13 @@ private[spanner] final class SpannerObjectInteractions(
           )
         )
       )(session)
-      .recoverWith {
-        case e: StatusRuntimeException =>
-          if (e.getStatus.getCode == Status.Code.ALREADY_EXISTS)
-            Future.failed(
-              new IllegalStateException(s"Insert failed: object for persistence id [$persistenceId] already exists")
-            )
-          else
-            Future.failed(e)
+      .recoverWith { case e: StatusRuntimeException =>
+        if (e.getStatus.getCode == Status.Code.ALREADY_EXISTS)
+          Future.failed(
+            new IllegalStateException(s"Insert failed: object for persistence id [$persistenceId] already exists")
+          )
+        else
+          Future.failed(e)
       }
 
   private def update(
@@ -196,58 +195,59 @@ private[spanner] final class SpannerObjectInteractions(
     spannerGrpcClient
       .executeBatchDml(
         List(
-          (SqlUpdate, Struct(SqlUpdateTypes.map {
-            case Objects.EntityType => wrapNameValue(Objects.EntityType, entity)
-            case Objects.PersistenceId => wrapNameValue(Objects.PersistenceId, persistenceId)
-            case Objects.SerId => wrapNameValue(Objects.SerId, serId)
-            case Objects.SerManifest => wrapNameValue(Objects.SerManifest, serManifest)
-            case Objects.Value => wrapNameValue(Objects.Value, value)
-            case Objects.OldSeqNr => wrapNameValue(Objects.OldSeqNr, seqNr - 1)
-            case Objects.NewSeqNr => wrapNameValue(Objects.NewSeqNr, seqNr)
-            case other => throw new MatchError(other)
-          }), SqlUpdateTypes.mapValues(Type(_)).toMap)
+          (
+            SqlUpdate,
+            Struct(SqlUpdateTypes.map {
+              case Objects.EntityType => wrapNameValue(Objects.EntityType, entity)
+              case Objects.PersistenceId => wrapNameValue(Objects.PersistenceId, persistenceId)
+              case Objects.SerId => wrapNameValue(Objects.SerId, serId)
+              case Objects.SerManifest => wrapNameValue(Objects.SerManifest, serManifest)
+              case Objects.Value => wrapNameValue(Objects.Value, value)
+              case Objects.OldSeqNr => wrapNameValue(Objects.OldSeqNr, seqNr - 1)
+              case Objects.NewSeqNr => wrapNameValue(Objects.NewSeqNr, seqNr)
+              case other => throw new MatchError(other)
+            }),
+            SqlUpdateTypes.mapValues(Type(_)).toMap
+          )
         )
       )(session)
-      .map(response => {
+      .map { response =>
         val updated = response.resultSets.head.stats.head.rowCount.rowCountExact.head
         if (updated != 1L)
           throw new IllegalStateException(
             s"Update failed: object for persistence id [${persistenceId.id}] could not be updated to sequence number [$seqNr]"
           )
-      })
+      }
 
   // TODO maybe return timestamp?
   def getObject(persistenceId: PersistenceId): Future[Option[Result]] =
     spannerGrpcClient
-      .withSession(
-        session =>
-          spannerGrpcClient.client.read(
-            ReadRequest(
-              session.session.name,
-              transaction = None,
-              settings.objectTable,
-              index = "",
-              Seq(Objects.Value, Objects.SerId, Objects.SerManifest, Objects.SeqNr).map(_._1),
-              wrapPersistenceId(persistenceId),
-              limit = 1
-            )
+      .withSession(session =>
+        spannerGrpcClient.client.read(
+          ReadRequest(
+            session.session.name,
+            transaction = None,
+            settings.objectTable,
+            index = "",
+            Seq(Objects.Value, Objects.SerId, Objects.SerManifest, Objects.SeqNr).map(_._1),
+            wrapPersistenceId(persistenceId),
+            limit = 1
           )
+        )
       )
-      .map(
-        resultSet =>
-          resultSet.rows.headOption.map {
-            case ListValue(Seq(value, serId, serManifest, seqNr), _) =>
-              Result(
-                ByteString(value.getStringValue).decodeBase64,
-                serId.getStringValue.toLong,
-                serManifest.getStringValue,
-                seqNr.getStringValue.toLong
-              )
-          }
+      .map(resultSet =>
+        resultSet.rows.headOption.map { case ListValue(Seq(value, serId, serManifest, seqNr), _) =>
+          Result(
+            ByteString(value.getStringValue).decodeBase64,
+            serId.getStringValue.toLong,
+            serManifest.getStringValue,
+            seqNr.getStringValue.toLong
+          )
+        }
       )
 
   def deleteObject(persistenceId: PersistenceId): Future[Unit] =
-    spannerGrpcClient.withSession(session => {
+    spannerGrpcClient.withSession { session =>
       spannerGrpcClient.write(
         Seq(
           Mutation(
@@ -260,7 +260,7 @@ private[spanner] final class SpannerObjectInteractions(
           )
         )
       )(session)
-    })
+    }
 
   private val ObjectChangesSql =
     s"""SELECT ${Objects.Columns.map(_._1).mkString(", ")}

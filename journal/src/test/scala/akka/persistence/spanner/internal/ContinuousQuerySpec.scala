@@ -15,9 +15,13 @@ import org.scalatest.wordspec.AnyWordSpecLike
 
 import scala.concurrent.duration._
 
-class ContinuousQuerySpec extends ScalaTestWithActorTestKit(ConfigFactory.parseString("""
+class ContinuousQuerySpec
+    extends ScalaTestWithActorTestKit(ConfigFactory.parseString("""
                                                                                          akka.loglevel = DEBUG
-""")) with AnyWordSpecLike with ScalaFutures with LogCapturing {
+"""))
+    with AnyWordSpecLike
+    with ScalaFutures
+    with LogCapturing {
   implicit val as: ActorSystem = system.classicSystem
   "ContinuousQuery" should {
     "work for initial query" in {

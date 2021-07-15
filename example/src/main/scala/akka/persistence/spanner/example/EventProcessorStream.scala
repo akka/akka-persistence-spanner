@@ -3,24 +3,24 @@ package akka.persistence.spanner.example
 import akka.actor.typed.ActorSystem
 import akka.actor.typed.scaladsl.LoggerOps
 import akka.dispatch.ExecutionContexts
-import akka.persistence.query.{ EventEnvelope, NoOffset, Offset, PersistenceQuery }
+import akka.persistence.query.{EventEnvelope, NoOffset, Offset, PersistenceQuery}
 import akka.persistence.spanner.SpannerOffset
 import akka.persistence.spanner.internal.SpannerGrpcClientExtension
 import akka.persistence.spanner.scaladsl.SpannerReadJournal
 import akka.persistence.typed.PersistenceId
 import akka.stream.SharedKillSwitch
-import akka.stream.scaladsl.{ RestartSource, Sink, Source }
-import akka.{ Done, NotUsed }
+import akka.stream.scaladsl.{RestartSource, Sink, Source}
+import akka.{Done, NotUsed}
 import com.google.protobuf.struct.Value.Kind
-import com.google.protobuf.struct.{ ListValue, Struct, Value }
+import com.google.protobuf.struct.{ListValue, Struct, Value}
 import com.google.protobuf.struct.Value.Kind.StringValue
-import com.google.spanner.v1.{ Mutation, Type, TypeCode }
+import com.google.spanner.v1.{Mutation, Type, TypeCode}
 import org.HdrHistogram.Histogram
-import org.slf4j.{ Logger, LoggerFactory }
+import org.slf4j.{Logger, LoggerFactory}
 
 import scala.collection.mutable
 import scala.concurrent.duration._
-import scala.concurrent.{ ExecutionContext, Future }
+import scala.concurrent.{ExecutionContext, Future}
 import scala.reflect.ClassTag
 
 object EventProcessorStream {
@@ -57,7 +57,8 @@ class EventProcessorStream[Event: ClassTag](
     system: ActorSystem[_],
     executionContext: ExecutionContext,
     eventProcessorId: String,
-    tag: String) {
+    tag: String
+) {
   protected val log: Logger = LoggerFactory.getLogger(getClass)
   implicit val sys: ActorSystem[_] = system
   implicit val ec: ExecutionContext = executionContext
@@ -75,8 +76,8 @@ class EventProcessorStream[Event: ClassTag](
           readOffset().map { offset =>
             log.infoN("Starting stream for tag [{}] from offset [{}]", tag, offset)
             processEventsByTag(offset, histogram)
-            // groupedWithin can be used here to improve performance by reducing number of offset writes,
-            // with the trade-off of possibility of more duplicate events when stream is restarted
+              // groupedWithin can be used here to improve performance by reducing number of offset writes,
+              // with the trade-off of possibility of more duplicate events when stream is restarted
               .mapAsync(1)(writeOffset)
           }
         }
@@ -106,7 +107,7 @@ class EventProcessorStream[Event: ClassTag](
       }
       .map { eventEnvelope =>
         eventEnvelope.event match {
-          case event: Event => {
+          case event: Event =>
             // Times from different nodes, take with a pinch of salt
             val latency = System.currentTimeMillis() - eventEnvelope.timestamp
             if (latency < histogram.getMaxValue)
@@ -118,9 +119,9 @@ class EventProcessorStream[Event: ClassTag](
               event,
               PersistenceId.ofUniqueId(eventEnvelope.persistenceId),
               eventEnvelope.sequenceNr,
-              latency)
+              latency
+            )
             eventEnvelope.offset
-          }
           case other =>
             throw new IllegalArgumentException(s"Unexpected event [${other.getClass.getName}]")
         }
@@ -132,7 +133,8 @@ class EventProcessorStream[Event: ClassTag](
         grpcClient.executeQuery(
           Schema.offsetQuery,
           Schema.offsetQueryParams(eventProcessorId, tag),
-          Schema.offsetQueryParamTypes)
+          Schema.offsetQueryParamTypes
+        )
       }
       .map { rs =>
         if (rs.rows.isEmpty) startOffset()
@@ -164,16 +166,30 @@ class EventProcessorStream[Event: ClassTag](
       case SpannerOffset(commitTimestamp, seen) =>
         grpcClient
           .withSession { implicit session =>
-            grpcClient.write(Seq(Mutation(Mutation.Operation.InsertOrUpdate(Mutation.Write(
-              Schema.offsetStoreTableName,
-              Schema.Columns,
-              Seq(ListValue(Seq(
-                Value(StringValue(eventProcessorId)),
-                Value(StringValue(tag)),
-                Value(StringValue(commitTimestamp)),
-                Value(Kind.ListValue(ListValue(seen.map {
-                  case (pid, seqnr) => Value(StringValue(s"$pid:$seqnr"))
-                }.toSeq)))))))))))
+            grpcClient.write(
+              Seq(
+                Mutation(
+                  Mutation.Operation.InsertOrUpdate(
+                    Mutation.Write(
+                      Schema.offsetStoreTableName,
+                      Schema.Columns,
+                      Seq(
+                        ListValue(
+                          Seq(
+                            Value(StringValue(eventProcessorId)),
+                            Value(StringValue(tag)),
+                            Value(StringValue(commitTimestamp)),
+                            Value(Kind.ListValue(ListValue(seen.map { case (pid, seqnr) =>
+                              Value(StringValue(s"$pid:$seqnr"))
+                            }.toSeq)))
+                          )
+                        )
+                      )
+                    )
+                  )
+                )
+              )
+            )
           }
           .map(_ => Done)(ExecutionContexts.parasitic)
 

@@ -22,12 +22,10 @@ object TestActors {
       EventSourcedBehavior[Command, Command, String](
         persistenceId = PersistenceId.ofUniqueId(pid),
         "",
-        (_, command) => {
-          Effect.persist(command).thenRun(_ => command.replyTo ! Done)
-        },
+        (_, command) => Effect.persist(command).thenRun(_ => command.replyTo ! Done),
         (_, _) => ""
-      ).withTagger {
-        case WithTags(message, tags, _) => tags
+      ).withTagger { case WithTags(message, tags, _) =>
+        tags
       }
   }
 
@@ -39,15 +37,15 @@ object TestActors {
     def apply(pid: String): Behavior[Command] =
       EventSourcedBehavior[Command, Any, String](
         persistenceId = PersistenceId.ofUniqueId(pid),
-        "", { (_, command) =>
+        "",
+        (_, command) =>
           command match {
             case command: PersistMe =>
               Effect.persist(command.payload).thenRun(_ => command.replyTo ! Done)
             case Ping(replyTo) =>
               replyTo ! Done
               Effect.none
-          }
-        },
+          },
         (_, _) => ""
       )
   }

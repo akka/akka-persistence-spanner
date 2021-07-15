@@ -49,7 +49,7 @@ object ReadSide {
     Behaviors.withTimers { timers =>
       timers.startTimerAtFixedRate(ReportMetrics, 10.second)
       Behaviors.setup { ctx =>
-        val start = (settings.tagsPerProcessor * nr)
+        val start = settings.tagsPerProcessor * nr
         val end = start + (settings.tagsPerProcessor) - 1
         val tags = (start to end).map(i => s"tag-$i")
         ctx.log.info("Processor {} processing tags {}", nr, tags)
@@ -61,36 +61,33 @@ object ReadSide {
         // having more tags will also increase write throughput/latency as it'll write to
         // many partitions
         // downside is running many streams/queries against c*
-        tags.foreach(
-          tag =>
-            new EventProcessorStream[ConfigurablePersistentActor.Event](
-              ctx.system,
-              ctx.executionContext,
-              s"processor-$nr",
-              tag
-            ).runQueryStream(killSwitch, histogram)
+        tags.foreach(tag =>
+          new EventProcessorStream[ConfigurablePersistentActor.Event](
+            ctx.system,
+            ctx.executionContext,
+            s"processor-$nr",
+            tag
+          ).runQueryStream(killSwitch, histogram)
         )
 
         Behaviors
-          .receiveMessage[Command] {
-            case ReportMetrics =>
-              if (histogram.getTotalCount > 0) {
-                topic ! Topic.Publish(
-                  ReadSideTopic.ReadSideMetrics(
-                    histogram.getTotalCount,
-                    histogram.getMaxValue,
-                    histogram.getValueAtPercentile(99),
-                    histogram.getValueAtPercentile(50)
-                  )
+          .receiveMessage[Command] { case ReportMetrics =>
+            if (histogram.getTotalCount > 0) {
+              topic ! Topic.Publish(
+                ReadSideTopic.ReadSideMetrics(
+                  histogram.getTotalCount,
+                  histogram.getMaxValue,
+                  histogram.getValueAtPercentile(99),
+                  histogram.getValueAtPercentile(50)
                 )
-                histogram.reset()
-              }
-              Behaviors.same
+              )
+              histogram.reset()
+            }
+            Behaviors.same
           }
-          .receiveSignal {
-            case (_, PostStop) =>
-              killSwitch.shutdown()
-              Behaviors.same
+          .receiveSignal { case (_, PostStop) =>
+            killSwitch.shutdown()
+            Behaviors.same
           }
       }
     }
